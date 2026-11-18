@@ -91,6 +91,22 @@ or use `--no-color` / `--color`.
 Esc also clears an applied search. Clicking a bar selects its commit; the wheel
 scrolls the list.
 
+### Seeing one commit in full
+
+Select a commit (arrow keys, click, or `/` search) and press `v`. A full-screen
+viewer opens with the complete record: hash, author and committer dates, the
+entire commit message, the `--stat` summary and the patch, coloured green/red
+per hunk. Scroll with `j`/`k` or `PgUp`/`PgDn`, jump with `g`/`G`, and close
+with `v`, `q` or `Esc` — quitting the viewer leaves `ghg` running.
+
+Large patches are capped at 8000 lines and end with a truncation marker. The
+same data is available from git directly:
+
+```sh
+git show <hash>          # header + message + patch
+git show --stat <hash>   # summary only
+```
+
 ## How the heat is computed
 
 * **Value** — insertions + deletions from `git log --numstat`. Binary files
