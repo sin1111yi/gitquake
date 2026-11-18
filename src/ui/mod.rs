@@ -169,7 +169,7 @@ fn event_loop(terminal: &mut ratatui::DefaultTerminal, app: &mut App) -> Result<
 
 #[cfg(test)]
 mod tests {
-    use crate::config::{Config, KeyMap};
+    use crate::config::Config;
     use crate::git::LoadOptions;
     use crate::model::{Commit, FileStat, GitRef, RefKind, Repo};
     use crate::theme::{self, Quality};
@@ -235,8 +235,7 @@ mod tests {
             authors: 2,
             commits,
         };
-        let mut cfg = Config::default();
-        cfg.keymap = KeyMap::default();
+        let cfg = Config::default();
         let theme = theme::builtin("inferno").unwrap();
         let mut app = App::new(
             repo,
