@@ -124,13 +124,8 @@ impl Grid {
             let selected = selected_col == Some(x);
 
             let (count_t, count_fg) = if bucket.count > 0 {
-                let t = stats::normalize(
-                    bucket.count as u64,
-                    max_count,
-                    crate::config::HeatScale::Linear,
-                    1.0,
-                );
-                (t, app.theme.heat(t.clamp(0.15, 1.0)))
+                let t = rows::heat_value(bucket.count as u64, max_count, g);
+                (t, app.theme.heat(t))
             } else {
                 (0.0, app.theme.roles.axis)
             };

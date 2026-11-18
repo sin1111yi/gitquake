@@ -6,7 +6,6 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 
 use crate::model::Commit;
 use crate::rows;
-use crate::stats;
 use crate::ui::app::App;
 use crate::util;
 
@@ -102,22 +101,16 @@ fn build_lines(app: &App, c: &Commit, width: usize) -> Vec<Line<'static>> {
         return lines;
     }
 
-    let max_vol = c.files.iter().map(|f| f.volume()).max().unwrap_or(0).max(1);
     let bar_w = (width / 4).clamp(4, 18);
     let diff_w = 13usize;
     let path_w = width.saturating_sub(bar_w + 1 + diff_w + 1).max(6);
 
     for file in c.files.iter().take(400) {
-        let vol = file.volume();
+        // Same reference and mapping as the commit's wave bar and colour.
         let t = if file.is_binary() {
             0.0
         } else {
-            stats::normalize(
-                vol,
-                max_vol,
-                app.cfg.general.heat_scale,
-                app.cfg.general.heat_gamma,
-            )
+            rows::heat_value(file.volume(), app.p95, &app.cfg.general)
         };
         let filled = if t <= 0.0 {
             0

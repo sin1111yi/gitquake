@@ -53,11 +53,16 @@ pub struct RowCtx<'a> {
     pub width: usize,
 }
 
+/// The single heat value used for both colour and bar height.
+pub fn heat_value(volume: u64, reference: u64, cfg: &General) -> f64 {
+    normalize(volume, reference.max(1), cfg.heat_scale, cfg.heat_gamma)
+}
+
 pub fn heat_t(c: &Commit, p95: u64, cfg: &General) -> f64 {
     if c.is_merge() {
         0.0
     } else {
-        normalize(c.heat_volume(), p95, cfg.heat_scale, cfg.heat_gamma)
+        heat_value(c.heat_volume(), p95, cfg)
     }
 }
 
@@ -345,6 +350,21 @@ mod tests {
             insertions: ins,
             deletions: del,
         }
+    }
+
+    #[test]
+    fn heat_value_is_the_single_mapping() {
+        let mut g = General::default();
+        assert_eq!(heat_value(0, 100, &g), 0.0);
+        assert!((heat_value(100, 100, &g) - 1.0).abs() < 1e-9);
+        assert!(heat_value(10, 100, &g) < heat_value(50, 100, &g));
+        // same reference and flags as the commit colour/height path
+        let c = commit(30, 20);
+        assert!((heat_t(&c, 100, &g) - heat_value(50, 100, &g)).abs() < 1e-12);
+        g.heat_scale = HeatScale::Linear;
+        assert!((heat_value(50, 100, &g) - 0.5).abs() < 1e-9);
+        g.heat_gamma = 2.0;
+        assert!((heat_value(50, 100, &g) - 0.25).abs() < 1e-9);
     }
 
     #[test]

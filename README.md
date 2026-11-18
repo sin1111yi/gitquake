@@ -115,9 +115,11 @@ git show --stat <hash>   # summary only
   the maximum, so one imported vendor dump cannot flatten everything else.
 * **Mapping** — `log(1 + value) / log(1 + reference)`, then an optional gamma.
   `heat_scale = linear` switches to plain proportion.
-* **Height** — the same normalised value, drawn with eighth blocks
-  (`▁▂▃▄▅▆▇█`) for sub-cell precision. Colour comes from a five-stop ramp
-  interpolated over the same value.
+* **Height** — the *same* normalised value used for the colour, drawn with
+  eighth blocks (`▁▂▃▄▅▆▇█`) for sub-cell precision. Wave bars, the compact
+  bar in the commit list, and every per-file bar in the detail pane all share
+  this one value and reference: a 10-line file in a quiet commit cannot light
+  up like a giant one. Colour is a five-stop ramp interpolated over it.
 * **Merges** — git does not report a diffstat for them, so they are drawn as a
   one-eighth mark in the dim colour and labelled `merge`.
 
