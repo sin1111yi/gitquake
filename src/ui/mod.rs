@@ -325,6 +325,46 @@ mod tests {
     }
 
     #[test]
+    fn footer_uses_key_chips_and_selection_status() {
+        let mut app = app_with(20, false);
+        let text = render(&mut app, 120, 40);
+        assert!(text.contains("select"), "{text}");
+        assert!(text.contains("search"), "{text}");
+        assert!(text.contains("help"), "{text}");
+        assert!(text.contains("quit"), "{text}");
+        assert!(text.contains('│'), "expected group separators:\n{text}");
+        assert!(
+            text.contains("1/20"),
+            "expected position indicator:\n{text}"
+        );
+    }
+
+    #[test]
+    fn footer_keeps_help_and_quit_when_narrow() {
+        let mut app = app_with(8, false);
+        let text = render(&mut app, 58, 24);
+        assert!(text.contains("help"), "{text}");
+        assert!(text.contains("quit"), "{text}");
+    }
+
+    #[test]
+    fn footer_shows_status_and_search() {
+        let mut app = app_with(10, false);
+        app.set_status("scope: all branches");
+        let text = render(&mut app, 110, 34);
+        assert!(text.contains("scope: all branches"), "{text}");
+
+        app.status = None;
+        app.search = Some(super::app::Search {
+            query: "commit 3".into(),
+            matches: [3usize].into_iter().collect(),
+        });
+        let text = render(&mut app, 110, 34);
+        assert!(text.contains("1 match"), "{text}");
+        assert!(text.contains("Esc clear"), "{text}");
+    }
+
+    #[test]
     fn viewer_overlay_renders_and_scrolls() {
         let mut app = app_with(8, false);
         app.viewer = Some(crate::ui::app::Viewer {
