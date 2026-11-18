@@ -214,9 +214,10 @@ pub fn row_pieces(c: &Commit, ctx: &RowCtx, dimmed: bool) -> Vec<Piece> {
     };
 
     // Ensure the subject keeps a usable width; drop low-priority fields first.
+    // Eighteen columns leaves room for a readable subject plus its trailing gap.
     loop {
         let subject_w = ctx.width.saturating_sub(fixed(&fields));
-        if subject_w >= 12 || fields.len() <= 2 {
+        if subject_w >= 18 || fields.len() <= 2 {
             break;
         }
         let mut dropped = false;
@@ -286,7 +287,8 @@ pub fn row_pieces(c: &Commit, ctx: &RowCtx, dimmed: bool) -> Vec<Piece> {
             }
             "subject" => {
                 let prefix = if c.is_merge() { "⑂ " } else { "" };
-                let avail = subject_w.saturating_sub(prefix.width()).max(1);
+                // Keep one blank column between the subject and the next field.
+                let avail = subject_w.saturating_sub(prefix.width() + 1).max(1);
                 let subject = truncate_w(&c.subject, avail);
                 let used = prefix.width() + subject.width();
                 let text = format!(

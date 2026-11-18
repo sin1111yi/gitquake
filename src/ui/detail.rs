@@ -55,19 +55,25 @@ fn build_lines(app: &App, c: &Commit, width: usize) -> Vec<Line<'static>> {
         lines.push(Line::from(Span::styled(chunk, strong)));
     }
 
-    lines.push(Line::from(Span::styled(
-        util::truncate_w(
-            &format!(
-                "{} <{}>  ·  {}  ·  {}",
-                c.author_name,
-                c.author_email,
-                util::absolute(c.timestamp, "%Y-%m-%d %H:%M"),
-                util::humanize(c.timestamp, app.now())
-            ),
-            width,
-        ),
-        dim,
-    )));
+    let author = format!("{} <{}>", c.author_name, c.author_email);
+    let when = format!(
+        "{}  ·  {}",
+        util::absolute(c.timestamp, "%Y-%m-%d %H:%M"),
+        util::humanize(c.timestamp, app.now())
+    );
+    let meta = format!("{author}  ·  {when}");
+    if util::display_width(&meta) <= width {
+        lines.push(Line::from(Span::styled(meta, dim)));
+    } else {
+        lines.push(Line::from(Span::styled(
+            util::truncate_w(&author, width),
+            dim,
+        )));
+        lines.push(Line::from(Span::styled(
+            util::truncate_w(&when, width),
+            dim,
+        )));
+    }
 
     if c.parents.len() > 1 {
         let parents: Vec<String> = c

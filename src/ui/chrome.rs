@@ -31,6 +31,7 @@ pub fn draw_header(f: &mut Frame, app: &App, area: Rect) {
 
     let mut title = vec![
         Span::styled(" gitquake ", accent),
+        Span::styled("· ", dim),
         Span::styled(app.repo.name.clone(), strong),
         Span::styled("  ", dim),
         Span::styled(app.repo.branch.clone(), accent),

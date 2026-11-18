@@ -384,7 +384,8 @@ fn draw_card(f: &mut Frame, app: &App, area: Rect) {
         .max()
         .unwrap_or(20)
         .min(area.width as usize - 2);
-    let pw = (content_w as u16 + 2).max(20).min(area.width - 2);
+    // One column of breathing room inside each side of the border.
+    let pw = (content_w as u16 + 3).max(20).min(area.width - 2);
     let ph = 6u16.min(area.height);
 
     let cursor = cursor_column(app, area.width as usize).unwrap_or(area.width as usize / 2);
