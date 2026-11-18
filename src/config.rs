@@ -555,8 +555,8 @@ fn toml_key(k: &str) -> String {
 pub fn default_config_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("~/.config"))
-        .join("ghg")
-        .join("ghg.toml")
+        .join("gitquake")
+        .join("gitquake.toml")
 }
 
 pub fn expand_tilde(p: &str) -> PathBuf {
@@ -820,7 +820,7 @@ pub fn load(explicit: Option<&Path>, no_config: bool) -> Loaded {
         return Loaded { config: cfg };
     }
 
-    let env_path = std::env::var_os("GHG_CONFIG").map(PathBuf::from);
+    let env_path = std::env::var_os("GITQUAKE_CONFIG").map(PathBuf::from);
     let chosen = explicit.map(|p| p.to_path_buf()).or(env_path);
     let explicit_requested = chosen.is_some();
     let path = chosen.unwrap_or_else(default_config_path);
@@ -893,7 +893,7 @@ fn apply_settings(cfg: &mut Config, warnings: &mut Vec<String>) {
     }
 }
 
-pub const DEFAULT_CONFIG: &str = r##"# ghg — a waveform view of your git history
+pub const DEFAULT_CONFIG: &str = r##"# gitquake — a waveform view of your git history
 # TOML config. Colours are "#rrggbb" strings; arrays are TOML arrays.
 
 [general]

@@ -1,13 +1,13 @@
-# ghg — git history as a waveform
+# gitquake — git history as a waveform
 
-`ghg` turns a repository's commit history into a full-screen waveform. Time runs
+`gitquake` turns a repository's commit history into a full-screen waveform. Time runs
 left to right, every commit is a bar, bar height is how much that commit changed,
 and colour is a heat ramp over the same value. Quiet weeks become valleys, a day
 of refactoring becomes a ridge, and one giant commit glows near the top of the
 ramp.
 
 ```
-ghg · wokamark.nvim
+gitquake · wokamark.nvim
 main · 21 commits · 2 authors · HEAD · blend axis · log heat
 heat ████████████████████████  low → 712 lines → high
 
@@ -38,7 +38,7 @@ a scrollable list, a detail pane and mouse support.)*
 ## Install
 
 ```sh
-cargo install --path .        # or: cargo build --release && ./target/release/ghg
+cargo install --path .        # or: cargo build --release && ./target/release/gitquake
 ```
 
 Requires `git` on `PATH`. There is no libgit2 dependency: history is read with a
@@ -47,20 +47,20 @@ single `git log --numstat` call.
 ## Usage
 
 ```sh
-ghg                     # current repository
-ghg ~/src/thing         # any path inside a repository
-ghg --all               # every branch, not just HEAD
-ghg -n 500              # only the newest 500 commits
-ghg --since 2024-01-01  # git --since syntax
-ghg --author ada        # filter by author
-ghg --theme viridis --scale linear
-ghg --plain             # static output, safe for pipes/pagers
-ghg --plain --no-color | less
-ghg --dump-config       # print the effective config
-ghg --list-themes
+gitquake                     # current repository
+gitquake ~/src/thing         # any path inside a repository
+gitquake --all               # every branch, not just HEAD
+gitquake -n 500              # only the newest 500 commits
+gitquake --since 2024-01-01  # git --since syntax
+gitquake --author ada        # filter by author
+gitquake --theme viridis --scale linear
+gitquake --plain             # static output, safe for pipes/pagers
+gitquake --plain --no-color | less
+gitquake --dump-config       # print the effective config
+gitquake --list-themes
 ```
 
-When stdout is not a terminal, `ghg` automatically uses plain mode. Colours
+When stdout is not a terminal, `gitquake` automatically uses plain mode. Colours
 degrade from truecolor to 256 to 16 colours depending on `COLORTERM` / `TERM`,
 or use `--no-color` / `--color`.
 
@@ -97,7 +97,7 @@ Select a commit (arrow keys, click, or `/` search) and press `v`. A full-screen
 viewer opens with the complete record: hash, author and committer dates, the
 entire commit message, the `--stat` summary and the patch, coloured green/red
 per hunk. Scroll with `j`/`k` or `PgUp`/`PgDn`, jump with `g`/`G`, and close
-with `v`, `q` or `Esc` — quitting the viewer leaves `ghg` running.
+with `v`, `q` or `Esc` — quitting the viewer leaves `gitquake` running.
 
 Large patches are capped at 8000 lines and end with a truncation marker. The
 same data is available from git directly:
@@ -134,9 +134,9 @@ commits in `blend`.
 
 ## Configuration
 
-`ghg` reads `~/.config/ghg/ghg.toml` (XDG aware), creates it with annotated
+`gitquake` reads `~/.config/gitquake/gitquake.toml` (XDG aware), creates it with annotated
 defaults on first run, and reloads it with `R`. Override the location with
-`--config FILE` or `GHG_CONFIG`; skip it with `--no-config`.
+`--config FILE` or `GITQUAKE_CONFIG`; skip it with `--no-config`.
 
 The config is plain TOML. Every field is optional; unknown keys produce a
 warning in the header (`⚠ n config warnings`) instead of aborting.
@@ -182,17 +182,17 @@ help = "?"
 
 Built in: `inferno`, `magma`, `viridis`, `ice`, `mono`, `solarized`.
 
-Custom themes are TOML files in `~/.config/ghg/themes/<name>.toml`:
+Custom themes are TOML files in `~/.config/gitquake/themes/<name>.toml`:
 
 ```toml
-# ~/.config/ghg/themes/neon.toml
+# ~/.config/gitquake/themes/neon.toml
 [colors]
 heat_low = "#101322"
 heat_high = "#ffd166"
 accent = "#ffd166"
 ```
 
-Colour keys can also sit at the top level of the file. `ghg --list-themes`
+Colour keys can also sit at the top level of the file. `gitquake --list-themes`
 prints the built-in ramps and the theme directory.
 
 ## Plain mode

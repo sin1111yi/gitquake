@@ -24,7 +24,13 @@ pub fn print(app: &App, color: bool) -> Result<()> {
     writeln!(
         out,
         "{}",
-        util::paint(&format!("ghg · {}", app.repo.name), accent, q, color, true)
+        util::paint(
+            &format!("gitquake · {}", app.repo.name),
+            accent,
+            q,
+            color,
+            true
+        )
     )?;
     writeln!(
         out,

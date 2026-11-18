@@ -3,14 +3,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn bin() -> &'static str {
-    env!("CARGO_BIN_EXE_ghg")
+    env!("CARGO_BIN_EXE_gitquake")
 }
 
 fn run(args: &[&str]) -> Output {
     Command::new(bin())
         .args(args)
         .output()
-        .expect("failed to run ghg")
+        .expect("failed to run gitquake")
 }
 
 fn git(dir: &Path, args: &[&str]) -> String {
@@ -29,7 +29,7 @@ fn git(dir: &Path, args: &[&str]) -> String {
 }
 
 fn temp_repo(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("ghg-test-{name}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("gitquake-test-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     git(&dir, &["init", "-q", "-b", "main"]);
@@ -104,7 +104,7 @@ fn list_themes_prints_builtins() {
 
 #[test]
 fn outside_a_repository_fails_gracefully() {
-    let dir = std::env::temp_dir().join(format!("ghg-test-norepo-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("gitquake-test-norepo-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir).unwrap();
     let out = run(&["--no-config", "--plain", dir.to_str().unwrap()]);

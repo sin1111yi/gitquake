@@ -62,7 +62,7 @@ pub fn show(root: &Path, hash: &str) -> Result<Vec<String>> {
     const MAX_LINES: usize = 8_000;
     if lines.len() > MAX_LINES {
         lines.truncate(MAX_LINES);
-        lines.push("… diff truncated by ghg …".to_string());
+        lines.push("… diff truncated by gitquake …".to_string());
     }
     Ok(lines)
 }

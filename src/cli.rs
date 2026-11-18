@@ -2,14 +2,14 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-/// ghg — a git history waveform for your terminal.
+/// gitquake — a git history waveform for your terminal.
 ///
 /// Every commit becomes a bar whose height and colour map to how much it
 /// changed. Time flows left to right. Zoom, pan, search and themes are all
 /// configurable through a TOML config file.
 #[derive(Parser, Debug)]
 #[command(
-    name = "ghg",
+    name = "gitquake",
     version,
     about = "Git history as a heat-coloured waveform",
     after_help = "Keys: ↑↓/jk select · ←→/hl pan · +/- zoom · ↵ detail · / search\n\

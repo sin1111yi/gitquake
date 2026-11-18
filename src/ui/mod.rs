@@ -275,7 +275,7 @@ mod tests {
     fn renders_header_wave_list_and_footer() {
         let mut app = app_with(14, false);
         let text = render(&mut app, 120, 40);
-        assert!(text.contains("ghg"));
+        assert!(text.contains("gitquake"));
         assert!(text.contains("demo"));
         assert!(text.contains("commits"));
         assert!(text.contains("heat"));
