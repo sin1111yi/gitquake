@@ -6,7 +6,7 @@ use clap::Parser;
 ///
 /// Every commit becomes a bar whose height and colour map to how much it
 /// changed. Time flows left to right. Zoom, pan, search and themes are all
-/// configurable through a btop-style config file.
+/// configurable through a TOML config file.
 #[derive(Parser, Debug)]
 #[command(
     name = "ghg",

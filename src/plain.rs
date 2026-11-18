@@ -266,7 +266,7 @@ pub fn list_themes(cfg: &crate::config::Config) {
         let mut names: Vec<PathBuf> = entries
             .flatten()
             .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|e| e == "theme"))
+            .filter(|p| p.extension().is_some_and(|e| e == "toml"))
             .collect();
         names.sort();
         if !names.is_empty() {

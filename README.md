@@ -134,31 +134,32 @@ commits in `blend`.
 
 ## Configuration
 
-`ghg` reads `~/.config/ghg/ghg.conf` (XDG aware), creates it with annotated
+`ghg` reads `~/.config/ghg/ghg.toml` (XDG aware), creates it with annotated
 defaults on first run, and reloads it with `R`. Override the location with
 `--config FILE` or `GHG_CONFIG`; skip it with `--no-config`.
 
-The format is INI-ish and btop-flavoured:
+The config is plain TOML. Every field is optional; unknown keys produce a
+warning in the header (`⚠ n config warnings`) instead of aborting.
 
-```ini
+```toml
 [general]
-theme = inferno            # built-in name, custom theme name, or a path
+theme = "inferno"          # built-in name, custom theme name, or a path
 limit = 5000               # 0 = all commits
 all_branches = false
 relative_time = true       # false -> use date_format
-date_format = %Y-%m-%d
+date_format = "%Y-%m-%d"
 mouse = true
 wave_height = 0.55
-wave_mode = volume         # volume | density | both
-wave_axis = blend          # blend | time
+wave_mode = "volume"       # volume | density | both
+wave_axis = "blend"        # blend | time
 density_strip = true
-heat_scale = log           # log | linear
+heat_scale = "log"         # log | linear
 heat_percentile = 95
 heat_gamma = 1.0
-glyphs = eighth            # eighth | block | ascii
+glyphs = "eighth"          # eighth | block | ascii
 bar_width = 20
-row_fields = heat,bar,hash,subject,author,time,diff,refs
-detail_layout = auto       # auto | side | bottom
+row_fields = ["heat", "bar", "hash", "refs", "subject", "author", "time", "diff"]
+detail_layout = "auto"     # auto | side | bottom
 gap_hours = 12             # insert a gap separator when idle this long
 
 [colors]
@@ -170,37 +171,29 @@ heat_high = "#fde047"
 # fg, dim, accent, ok, bad, warn, axis, border, selected_bg, wave_peak
 
 [keys]
-zoom_in = +
-zoom_out = -
-help = ?
-# any action name from `--dump-config` neighbour list
+zoom_in = "+"
+zoom_out = "-"
+view_commit = "v"
+help = "?"
+# any action name from the defaults above
 ```
-
-Unknown keys produce a warning shown in the header (`⚠ n config warnings`)
-instead of aborting.
 
 ### Themes
 
 Built in: `inferno`, `magma`, `viridis`, `ice`, `mono`, `solarized`.
 
-Custom themes live in `~/.config/ghg/themes/<name>.theme` and can use either
-btop syntax or a `[colors]` section:
+Custom themes are TOML files in `~/.config/ghg/themes/<name>.toml`:
 
-```
-theme[heat_low] = "#101322"
-theme[heat_high] = "#ffd166"
-```
-
-or
-
-```ini
+```toml
+# ~/.config/ghg/themes/neon.toml
 [colors]
-heat_low = #101322
-heat_high = #ffd166
-accent = #ffd166
+heat_low = "#101322"
+heat_high = "#ffd166"
+accent = "#ffd166"
 ```
 
-`ghg --list-themes` prints the built-in ramps and the theme directory.
+Colour keys can also sit at the top level of the file. `ghg --list-themes`
+prints the built-in ramps and the theme directory.
 
 ## Plain mode
 

@@ -442,7 +442,9 @@ impl Config {
 
     pub fn theme_file(&self, name: &str) -> PathBuf {
         let expanded = expand_tilde(name);
-        let looks_like_path = expanded.components().count() > 1 || name.ends_with(".theme");
+        let looks_like_path = expanded.components().count() > 1
+            || name.ends_with(".toml")
+            || name.ends_with(".theme");
         if looks_like_path {
             if expanded.is_absolute() {
                 return expanded;
@@ -455,37 +457,54 @@ impl Config {
             }
             return expanded;
         }
-        self.themes_dir().join(format!("{name}.theme"))
+        self.themes_dir().join(format!("{name}.toml"))
     }
 
     pub fn dump(&self) -> String {
         let g = &self.general;
         let mut out = String::new();
         out.push_str("[general]\n");
-        out.push_str(&format!("theme = {}\n", g.theme));
+        out.push_str(&format!("theme = {}\n", toml_quote(&g.theme)));
         out.push_str(&format!("limit = {}\n", g.limit));
         out.push_str(&format!("all_branches = {}\n", g.all_branches));
         out.push_str(&format!("relative_time = {}\n", g.relative_time));
-        out.push_str(&format!("date_format = {}\n", g.date_format));
+        out.push_str(&format!("date_format = {}\n", toml_quote(&g.date_format)));
         out.push_str(&format!("mouse = {}\n", g.mouse));
         out.push_str(&format!("wave_height = {:.2}\n", g.wave_height));
-        out.push_str(&format!("wave_mode = {}\n", g.wave_mode.as_str()));
-        out.push_str(&format!("wave_axis = {}\n", g.wave_axis.as_str()));
+        out.push_str(&format!(
+            "wave_mode = {}\n",
+            toml_quote(g.wave_mode.as_str())
+        ));
+        out.push_str(&format!(
+            "wave_axis = {}\n",
+            toml_quote(g.wave_axis.as_str())
+        ));
         out.push_str(&format!("density_strip = {}\n", g.density_strip));
-        out.push_str(&format!("heat_scale = {}\n", g.heat_scale.as_str()));
+        out.push_str(&format!(
+            "heat_scale = {}\n",
+            toml_quote(g.heat_scale.as_str())
+        ));
         out.push_str(&format!("heat_percentile = {:.0}\n", g.heat_percentile));
         out.push_str(&format!("heat_gamma = {:.2}\n", g.heat_gamma));
-        out.push_str(&format!("glyphs = {}\n", g.glyphs.as_str()));
+        out.push_str(&format!("glyphs = {}\n", toml_quote(g.glyphs.as_str())));
         out.push_str(&format!("bar_width = {}\n", g.bar_width));
-        out.push_str(&format!("row_fields = {}\n", g.row_fields.join(",")));
-        out.push_str(&format!("detail_layout = {}\n", g.detail_layout.as_str()));
+        let fields: Vec<String> = g.row_fields.iter().map(|f| toml_quote(f)).collect();
+        out.push_str(&format!("row_fields = [{}]\n", fields.join(", ")));
+        out.push_str(&format!(
+            "detail_layout = {}\n",
+            toml_quote(g.detail_layout.as_str())
+        ));
         out.push_str(&format!("gap_hours = {}\n", g.gap_hours));
         if !self.colors.is_empty() {
             out.push_str("\n[colors]\n");
             let mut keys: Vec<_> = self.colors.keys().collect();
             keys.sort();
             for k in keys {
-                out.push_str(&format!("{k} = {}\n", self.colors[k]));
+                out.push_str(&format!(
+                    "{} = {}\n",
+                    toml_key(k),
+                    toml_quote(&self.colors[k])
+                ));
             }
         }
         if !self.keys.is_empty() {
@@ -493,10 +512,43 @@ impl Config {
             let mut keys: Vec<_> = self.keys.keys().collect();
             keys.sort();
             for k in keys {
-                out.push_str(&format!("{k} = {}\n", self.keys[k]));
+                out.push_str(&format!(
+                    "{} = {}\n",
+                    toml_key(k),
+                    toml_quote(&self.keys[k])
+                ));
             }
         }
         out
+    }
+}
+
+fn toml_quote(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04X}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn toml_key(k: &str) -> String {
+    if !k.is_empty()
+        && k.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        k.to_string()
+    } else {
+        toml_quote(k)
     }
 }
 
@@ -504,7 +556,7 @@ pub fn default_config_path() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("~/.config"))
         .join("ghg")
-        .join("ghg.conf")
+        .join("ghg.toml")
 }
 
 pub fn expand_tilde(p: &str) -> PathBuf {
@@ -514,64 +566,6 @@ pub fn expand_tilde(p: &str) -> PathBuf {
         }
     }
     PathBuf::from(p)
-}
-
-fn strip_comment(line: &str) -> String {
-    let chars: Vec<char> = line.chars().collect();
-    let mut out = String::new();
-    let mut in_quote: Option<char> = None;
-    let mut prev_ws = true;
-    let mut i = 0;
-    while i < chars.len() {
-        let ch = chars[i];
-        if let Some(q) = in_quote {
-            out.push(ch);
-            if ch == q {
-                in_quote = None;
-            }
-            prev_ws = ch.is_whitespace();
-            i += 1;
-            continue;
-        }
-        match ch {
-            '"' | '\'' => {
-                in_quote = Some(ch);
-                out.push(ch);
-            }
-            '#' if prev_ws => {
-                // Keep unquoted hex colours such as `accent = #22d3ee`,
-                // otherwise `#` starts a trailing comment.
-                let hex_len = chars[i + 1..]
-                    .iter()
-                    .take(6)
-                    .take_while(|c| c.is_ascii_hexdigit())
-                    .count();
-                let boundary_ok = chars.get(i + 7).is_none_or(|c| !c.is_ascii_hexdigit());
-                if hex_len == 6 && boundary_ok {
-                    out.push(ch);
-                } else {
-                    break;
-                }
-            }
-            _ => out.push(ch),
-        }
-        prev_ws = ch.is_whitespace();
-        i += 1;
-    }
-    out
-}
-
-fn unquote(v: &str) -> String {
-    let v = v.trim();
-    if v.len() >= 2 {
-        let bytes = v.as_bytes();
-        let first = bytes[0];
-        let last = bytes[v.len() - 1];
-        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
-            return v[1..v.len() - 1].to_string();
-        }
-    }
-    v.to_string()
 }
 
 fn parse_bool(v: &str) -> Option<bool> {
@@ -624,12 +618,12 @@ fn validate_date_format(fmt: &str) -> bool {
 fn apply_general(key: &str, value: &str, cfg: &mut Config, warnings: &mut Vec<String>) {
     let g = &mut cfg.general;
     match key {
-        "theme" => g.theme = unquote(value),
+        "theme" => g.theme = value.trim().to_string(),
         "limit" => set_usize(&mut g.limit, key, value, warnings),
         "all_branches" => set_bool(&mut g.all_branches, key, value, warnings),
         "relative_time" => set_bool(&mut g.relative_time, key, value, warnings),
         "date_format" => {
-            let v = unquote(value);
+            let v = value.trim().to_string();
             if validate_date_format(&v) {
                 g.date_format = v;
             } else {
@@ -663,7 +657,7 @@ fn apply_general(key: &str, value: &str, cfg: &mut Config, warnings: &mut Vec<St
             g.bar_width = v.clamp(4, 60);
         }
         "row_fields" => {
-            let fields: Vec<String> = unquote(value)
+            let fields: Vec<String> = value
                 .split(',')
                 .map(|f| f.trim().to_ascii_lowercase())
                 .filter(|f| !f.is_empty())
@@ -699,96 +693,119 @@ fn apply_general(key: &str, value: &str, cfg: &mut Config, warnings: &mut Vec<St
     }
 }
 
-fn handle_pair(
-    section: &str,
-    key: &str,
-    value: &str,
-    cfg: &mut Config,
-    warnings: &mut Vec<String>,
-) {
-    match section {
-        "colors" | "theme" => {
-            cfg.colors.insert(key.to_string(), unquote(value));
+fn first_line(s: &str) -> &str {
+    s.lines().next().unwrap_or(s)
+}
+
+fn setting_from_value(v: &toml::Value) -> Option<String> {
+    match v {
+        toml::Value::String(s) => Some(s.clone()),
+        toml::Value::Integer(i) => Some(i.to_string()),
+        toml::Value::Float(f) => Some(f.to_string()),
+        toml::Value::Boolean(b) => Some(b.to_string()),
+        toml::Value::Array(items) => {
+            let mut out = Vec::with_capacity(items.len());
+            for item in items {
+                out.push(item.as_str()?.to_string());
+            }
+            Some(out.join(","))
         }
-        "keys" => {
-            cfg.keys.insert(key.to_string(), unquote(value));
-        }
-        "general" | "" => apply_general(key, value, cfg, warnings),
-        other => warnings.push(format!("unknown section `[{other}]`")),
+        _ => None,
     }
 }
 
+/// Parse a TOML config document into `cfg`, collecting warnings instead of failing.
 pub fn parse_into(src: &str, cfg: &mut Config, warnings: &mut Vec<String>) {
-    let mut section = String::new();
-    for (idx, raw) in src.lines().enumerate() {
-        let line = strip_comment(raw).trim().to_string();
-        if line.is_empty() {
-            continue;
+    let table: toml::Table = match src.parse() {
+        Ok(t) => t,
+        Err(err) => {
+            warnings.push(format!("TOML error: {}", first_line(&err.to_string())));
+            return;
         }
-        // btop-style `theme[key] = value`
-        if line.to_ascii_lowercase().starts_with("theme[") {
-            if let Some(close) = line.find(']') {
-                let rest = line[close + 1..].trim_start();
-                if let Some(v) = rest.strip_prefix('=') {
-                    let key = line[6..close].trim().to_ascii_lowercase();
-                    cfg.colors.insert(key, unquote(v));
-                    continue;
+    };
+    for (section, value) in &table {
+        match (section.as_str(), value) {
+            ("general", toml::Value::Table(t)) => {
+                for (key, v) in t {
+                    match setting_from_value(v) {
+                        Some(text) => apply_general(key, &text, cfg, warnings),
+                        None => warnings.push(format!("invalid value for `{key}`: {v:?}")),
+                    }
                 }
             }
-        }
-        if line.starts_with('[') {
-            if let Some(end) = line.find(']') {
-                section = line[1..end].trim().to_ascii_lowercase();
-                continue;
+            ("colors" | "theme", toml::Value::Table(t)) => {
+                for (key, v) in t {
+                    match v.as_str() {
+                        Some(text) => {
+                            cfg.colors
+                                .insert(key.to_ascii_lowercase(), text.to_string());
+                        }
+                        None => warnings.push(format!("colour `{key}` must be a string")),
+                    }
+                }
             }
+            ("keys", toml::Value::Table(t)) => {
+                for (key, v) in t {
+                    match v.as_str() {
+                        Some(text) => {
+                            cfg.keys.insert(key.to_ascii_lowercase(), text.to_string());
+                        }
+                        None => warnings.push(format!("key binding `{key}` must be a string")),
+                    }
+                }
+            }
+            (other, toml::Value::Table(_)) => {
+                warnings.push(format!("unknown section `[{other}]`"));
+            }
+            (key, _) => warnings.push(format!("unknown top-level key `{key}`")),
         }
-        let Some((k, v)) = line.split_once('=') else {
-            warnings.push(format!("line {}: expected `key = value`", idx + 1));
-            continue;
-        };
-        let key = k.trim().to_ascii_lowercase();
-        if key.is_empty() {
-            warnings.push(format!("line {}: empty key", idx + 1));
-            continue;
-        }
-        handle_pair(&section, &key, v.trim(), cfg, warnings);
     }
 }
 
+/// Parse a TOML theme file into colour overrides.
+///
+/// Accepts both
+/// ```toml
+/// [colors]
+/// heat_high = "#fde047"
+/// ```
+/// and top-level colour keys.
 pub fn parse_theme_overrides(
     src: &str,
     map: &mut HashMap<String, String>,
     warnings: &mut Vec<String>,
 ) {
-    let mut section = String::new();
-    for raw in src.lines() {
-        let line = strip_comment(raw).trim().to_string();
-        if line.is_empty() {
-            continue;
+    let table: toml::Table = match src.parse() {
+        Ok(t) => t,
+        Err(err) => {
+            warnings.push(format!(
+                "TOML error in theme file: {}",
+                first_line(&err.to_string())
+            ));
+            return;
         }
-        if line.to_ascii_lowercase().starts_with("theme[") {
-            if let Some(close) = line.find(']') {
-                let rest = line[close + 1..].trim_start();
-                if let Some(v) = rest.strip_prefix('=') {
-                    let key = line[6..close].trim().to_ascii_lowercase();
-                    map.insert(key, unquote(v));
+    };
+    for (key, value) in &table {
+        if key == "colors" || key == "theme" {
+            match value.as_table() {
+                Some(t) => {
+                    for (k, v) in t {
+                        match v.as_str() {
+                            Some(text) => {
+                                map.insert(k.to_ascii_lowercase(), text.to_string());
+                            }
+                            None => warnings.push(format!("theme colour `{k}` must be a string")),
+                        }
+                    }
                 }
+                None => warnings.push(format!("`[{key}]` must be a table")),
             }
-            continue;
-        }
-        if line.starts_with('[') {
-            if let Some(end) = line.find(']') {
-                section = line[1..end].trim().to_ascii_lowercase();
-            }
-            continue;
-        }
-        if !section.is_empty() && section != "colors" && section != "theme" {
-            warnings.push(format!("unknown section `[{section}]` in theme file"));
-            section.clear();
-            continue;
-        }
-        if let Some((k, v)) = line.split_once('=') {
-            map.insert(k.trim().to_ascii_lowercase(), unquote(v.trim()));
+        } else if let Some(text) = value.as_str() {
+            map.insert(key.to_ascii_lowercase(), text.to_string());
+        } else if value.is_table() {
+            warnings.push(format!("unknown section `[{key}]` in theme file"));
+        } else {
+            warnings.push(format!("theme colour `{key}` must be a string"));
         }
     }
 }
@@ -877,13 +894,12 @@ fn apply_settings(cfg: &mut Config, warnings: &mut Vec<String>) {
 }
 
 pub const DEFAULT_CONFIG: &str = r##"# ghg — a waveform view of your git history
-# Config format: `key = value`, `#` starts a comment.
-# Theme files live in ./themes/*.theme and use btop-style `theme[key] = "#hex"`.
+# TOML config. Colours are "#rrggbb" strings; arrays are TOML arrays.
 
 [general]
 # Built-in: inferno | magma | viridis | ice | mono | solarized
-# Or a theme name found in ./themes/<name>.theme, or an absolute path.
-theme = inferno
+# Or a theme name found in ./themes/<name>.toml, or an absolute path.
+theme = "inferno"
 
 # Maximum commits to load (0 = everything).
 limit = 5000
@@ -891,11 +907,9 @@ limit = 5000
 # Include commits from all branches.
 all_branches = false
 
-# Show `2h` instead of an absolute date in the commit list.
+# Relative timestamps ("3d"); false uses date_format.
 relative_time = true
-
-# strftime format for absolute dates.
-date_format = %Y-%m-%d
+date_format = "%Y-%m-%d"
 
 # Mouse click / wheel support.
 mouse = true
@@ -904,74 +918,65 @@ mouse = true
 wave_height = 0.55
 
 # Waveform height source: volume | density | both
-wave_mode = volume
+wave_mode = "volume"
 
-# Horizontal mapping: time (honest, bursts collapse) | blend (readable, default)
-wave_axis = blend
+# Horizontal mapping: blend (readable, default) | time (strict wall clock).
+wave_axis = "blend"
 
-# Show the commit-count sparkline under the time axis.
+# Show the commit-count sparkline under the waveform.
 density_strip = true
 
-# Change-volume mapping: log | linear
-heat_scale = log
+# Change-volume mapping: log | linear. Height and colour share this value.
+heat_scale = "log"
 
-# Normalisation percentile (50 - 100). Keeps outlier commits from flattening the ramp.
+# Normalisation percentile (50 - 100). Keeps outliers from flattening the ramp.
 heat_percentile = 95
 
 # Ramp exponent (0.2 - 5.0). > 1 darkens small changes, < 1 lights them up.
 heat_gamma = 1.0
 
 # Sub-cell glyphs: eighth | block | ascii
-glyphs = eighth
+glyphs = "eighth"
 
 # Width of the per-commit heat bar, in columns (4 - 60).
 bar_width = 20
 
 # Which fields appear in the commit list, in order.
-row_fields = heat,bar,hash,refs,subject,author,time,diff
+row_fields = ["heat", "bar", "hash", "refs", "subject", "author", "time", "diff"]
 
 # Details pane placement: auto | side | bottom
-detail_layout = auto
+detail_layout = "auto"
 
-# Insert a gap separator when commits are further apart than this (hours, 0 = off).
+# Insert a gap separator when commits are this many hours apart (0 disables).
 gap_hours = 12
 
-[colors]
-# Optional overrides for the active theme:
-# heat_low = #1e1b4b
-# heat_1   = #6d28d9
-# heat_2   = #db2777
-# heat_3   = #f97316
-# heat_high = #fde047
-# fg = #cbd5e1
-# dim = #64748b
-# accent = #22d3ee
-# ok = #22c55e
-# bad = #ef4444
-# axis = #3f4756
-# border = #2b3240
-# selected_bg = #1e2635
-# wave_peak = #ffffff
+# Colour overrides, applied on top of the selected theme.
+# [colors]
+# heat_low = "#1e1b4b"
+# heat_1 = "#6d28d9"
+# heat_2 = "#db2777"
+# heat_3 = "#f97316"
+# heat_high = "#fde047"
+# fg = "#cbd5e1"
+# dim = "#64748b"
+# accent = "#38bdf8"
+# ok = "#22c55e"
+# bad = "#ef4444"
+# warn = "#eab308"
+# axis = "#3f4756"
+# border = "#2b3240"
+# selected_bg = "#1e2635"
+# wave_peak = "#ffffff"
 
-[keys]
-# Override any action with a single character or a named key:
-# select_prev = k
-# select_next = j
-# pan_left = h
-# pan_right = l
-# zoom_in = +
-# zoom_out = -
-# reset_zoom = 0
-# toggle_detail = enter
-# view_commit = v
-# search = /
-# toggle_sort = t
-# toggle_scale = s
-# toggle_all_branches = a
-# toggle_theme = T
-# toggle_list = L
-# reload = R
-# quit = q
+# Key bindings, using key names like "q", "?", "enter", "up", "page_down", "+".
+# [keys]
+# zoom_in = "+"
+# zoom_out = "-"
+# toggle_detail = "enter"
+# view_commit = "v"
+# toggle_list = "L"
+# reload = "R"
+# quit = "q"
 "##;
 
 #[cfg(test)]
@@ -996,19 +1001,19 @@ mod tests {
     }
 
     #[test]
-    fn parses_general_and_theme_blocks() {
+    fn parses_general_and_colors() {
         let (cfg, warnings) = parsed(
             r##"
             [general]
             theme = "ice"      # inline comment
             limit = 42
             wave_height = 0.7
-            heat_scale = linear
-            row_fields = hash, subject, diff
-            theme[heat_high] = "#ff0000"
+            heat_scale = "linear"
+            row_fields = ["hash", "subject", "diff"]
 
             [colors]
-            accent = #00ff00
+            heat_high = "#ff0000"
+            accent = "#00ff00"
             "##,
         );
         assert!(warnings.is_empty(), "{warnings:?}");
@@ -1026,16 +1031,18 @@ mod tests {
         let (cfg, warnings) = parsed(
             r#"
             [general]
-            limit = nope
-            wave_mode = sideways
-            row_fields = hash, bogus
-            date_format = %Q
+            limit = "nope"
+            wave_mode = "sideways"
+            row_fields = ["hash", "bogus"]
+            date_format = "%Q"
             unknown_key = 1
+
             [colors]
-            accent = not-a-colour
+            accent = "not-a-colour"
+
             [keys]
-            zoom_in = ++++
-            nope = q
+            zoom_in = "++++"
+            nope = "q"
             "#,
         );
         assert_eq!(cfg.general.limit, 5000);
@@ -1047,9 +1054,16 @@ mod tests {
     }
 
     #[test]
+    fn broken_toml_warns_and_keeps_defaults() {
+        let (cfg, warnings) = parsed("[general\nlimit = 3\n");
+        assert_eq!(cfg.general.limit, 5000);
+        assert!(warnings.iter().any(|w| w.contains("TOML")), "{warnings:?}");
+    }
+
+    #[test]
     fn clamps_out_of_range_numbers() {
         let (cfg, _) =
-            parsed("[general]\nwave_height = 9\nheat_percentile = 10\nbar_width = 500\n");
+            parsed("[general]\nwave_height = 9.0\nheat_percentile = 10.0\nbar_width = 500\n");
         assert!((cfg.general.wave_height - 0.85).abs() < 1e-9);
         assert_eq!(cfg.general.heat_percentile, 50.0);
         assert_eq!(cfg.general.bar_width, 60);
@@ -1065,7 +1079,7 @@ mod tests {
 
     #[test]
     fn keys_can_be_overridden() {
-        let (mut cfg, mut warnings) = parsed("[keys]\nquit = x\nzoom_in = =\n");
+        let (mut cfg, mut warnings) = parsed("[keys]\nquit = \"x\"\nzoom_in = \"=\"\n");
         cfg.keymap.apply(&cfg.keys, &mut warnings);
         assert_eq!(cfg.keymap.action(KeyCode::Char('x')), Some(Action::Quit));
         assert_eq!(cfg.keymap.action(KeyCode::Char('q')), None);
@@ -1075,7 +1089,7 @@ mod tests {
     #[test]
     fn dump_roundtrips() {
         let (cfg, _) = parsed(
-            "[general]\ntheme = mono\nrow_fields = hash,subject\n[colors]\naccent = #010203\n",
+            "[general]\ntheme = \"mono\"\nrow_fields = [\"hash\", \"subject\"]\n\n[colors]\naccent = \"#010203\"\n",
         );
         let dumped = cfg.dump();
         let (cfg2, warnings) = parsed(&dumped);
@@ -1086,15 +1100,23 @@ mod tests {
     }
 
     #[test]
+    fn dump_is_valid_toml() {
+        let cfg = Config::default();
+        let dumped = cfg.dump();
+        let table: toml::Table = dumped.parse().expect("dump must parse as TOML");
+        assert!(table.contains_key("general"));
+    }
+
+    #[test]
     fn theme_file_overrides_parse() {
         let mut map = HashMap::new();
         let mut warnings = Vec::new();
         parse_theme_overrides(
-            "# comment\ntheme[heat_low] = \"#000000\"\n[colors]\naccent = #123456\n",
+            "# comment\nheat_low = \"#000000\"\n\n[colors]\naccent = \"#123456\"\n",
             &mut map,
             &mut warnings,
         );
-        assert!(warnings.is_empty());
+        assert!(warnings.is_empty(), "{warnings:?}");
         assert_eq!(map.get("heat_low").unwrap(), "#000000");
         assert_eq!(map.get("accent").unwrap(), "#123456");
     }

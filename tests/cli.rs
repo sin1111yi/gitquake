@@ -86,8 +86,8 @@ fn dump_config_mentions_key_settings() {
     assert!(out.status.success());
     let text = String::from_utf8_lossy(&out.stdout);
     assert!(text.contains("[general]"), "{text}");
-    assert!(text.contains("theme = inferno"), "{text}");
-    assert!(text.contains("wave_axis = blend"), "{text}");
+    assert!(text.contains("theme = \"inferno\""), "{text}");
+    assert!(text.contains("wave_axis = \"blend\""), "{text}");
     assert!(text.contains("heat_percentile = 95"), "{text}");
     assert!(text.contains("row_fields = "), "{text}");
 }
