@@ -1,0 +1,22 @@
+[package]
+name = "ghg"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A waveform view of your git history"
+license = "MIT"
+keywords = ["git", "tui", "visualization", "ratatui", "history"]
+categories = ["command-line-utilities", "visualization"]
+
+[dependencies]
+anyhow = "1"
+chrono = "0.4"
+clap = { version = "4", features = ["derive"] }
+crossterm = "0.29"
+dirs = "7"
+ratatui = "0.30"
+unicode-width = "0.2"
+
+[profile.release]
+lto = "thin"
+strip = true
