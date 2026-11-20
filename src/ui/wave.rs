@@ -109,8 +109,19 @@ impl Grid {
         let buckets = stats::project_buckets(&app.commits, &proj, width);
         let mut columns = vec![None; width];
         let mut rows = vec![vec![Cell::blank(app.theme.roles.axis); width]; height];
-        let max_count = buckets.iter().map(|b| b.count as u64).max().unwrap_or(0);
-        let count_scale = CountScale::new(max_count);
+        // Process the visible buckets once to find the actual range. Rebuilding
+        // the height function from this range keeps a two-month zoom from
+        // inheriting the flat scale of the full history.
+        let (min_count, max_count) = buckets.iter().fold((u64::MAX, 0u64), |(lo, hi), b| {
+            let count = b.count as u64;
+            if count == 0 {
+                (lo, hi)
+            } else {
+                (lo.min(count), hi.max(count))
+            }
+        });
+        let min_count = if max_count == 0 { 0 } else { min_count };
+        let count_scale = CountScale::with_range(min_count, max_count);
         if width == 0 || height == 0 {
             return Grid {
                 rows,
@@ -513,7 +524,7 @@ mod tests {
 
     #[test]
     fn y_axis_labels_are_sorted_and_fit_the_grid() {
-        let labels = y_axis_labels(&CountScale::new(150), 20);
+        let labels = y_axis_labels(&CountScale::with_range(1, 150), 20);
         assert_eq!(labels.first(), Some(&(0, 150)));
         assert!(labels.windows(2).all(|w| w[0].0 < w[1].0));
         assert!(labels.iter().all(|(row, _)| *row < 20));
@@ -522,7 +533,7 @@ mod tests {
     #[test]
     fn y_axis_labels_keep_the_visible_maximum() {
         for max in [1, 2, 7, 150, 10_000] {
-            let labels = y_axis_labels(&CountScale::new(max), 8);
+            let labels = y_axis_labels(&CountScale::with_range(1, max), 8);
             assert_eq!(labels.first().map(|(_, c)| *c), Some(max));
         }
     }

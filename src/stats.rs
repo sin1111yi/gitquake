@@ -121,15 +121,25 @@ pub struct CountScale {
 }
 
 impl CountScale {
-    pub fn new(max_count: u64) -> CountScale {
+    /// Build a scale anchored to the values that are actually visible.
+    ///
+    /// The first band runs from `0` to the smallest non-zero bucket, then the
+    /// breakpoints double up to the largest bucket. A three-month window with
+    /// 50–150 commits per column therefore uses `0–50–100–150`, while a wider
+    /// window with 1–150 uses `0–1–2–4–…–150`. Same code, different range,
+    /// different resolution.
+    pub fn with_range(min_count: u64, max_count: u64) -> CountScale {
         let max = max_count.max(1);
-        let mut breaks = vec![0u64];
-        let mut next = 1u64;
-        while next < max {
+        let min = min_count.max(1).min(max);
+        let mut breaks = vec![0u64, min];
+        let mut next = min.saturating_mul(2);
+        while next > min && next < max {
             breaks.push(next);
             next = next.saturating_mul(2);
         }
-        breaks.push(max);
+        if breaks.last().copied() != Some(max) {
+            breaks.push(max);
+        }
         CountScale { breaks }
     }
 
@@ -598,7 +608,7 @@ mod tests {
 
     #[test]
     fn count_scale_separates_large_counts() {
-        let scale = CountScale::new(150);
+        let scale = CountScale::with_range(1, 150);
         assert_eq!(scale.height(0), 0.0);
         assert!((scale.height(150) - 1.0).abs() < 1e-9);
         assert!(scale.height(100) > scale.height(64));
@@ -607,17 +617,35 @@ mod tests {
         // 100 and 150 must not collapse onto the same row.
         assert!(scale.height(150) - scale.height(100) > 0.1);
 
-        let wide = CountScale::new(10_000);
+        let wide = CountScale::with_range(1, 10_000);
         assert!(wide.height(150) > wide.height(100));
         assert!(wide.height(150) - wide.height(100) > 0.01);
     }
 
     #[test]
+    fn count_scale_reanchors_on_the_visible_range() {
+        let wide = CountScale::with_range(1, 150);
+        let narrow = CountScale::with_range(50, 150);
+        assert_eq!(narrow.steps(), &[0, 50, 100, 150]);
+        assert!((narrow.height(50) - 1.0 / 3.0).abs() < 1e-9);
+        assert!((narrow.height(100) - 2.0 / 3.0).abs() < 1e-9);
+        assert_eq!(narrow.height(150), 1.0);
+        // The visible range is expanded, not squeezed by all the quiet columns
+        // that are outside the window.
+        assert!(
+            narrow.height(100) - narrow.height(50) > wide.height(100) - wide.height(50),
+            "narrow={:?} wide={:?}",
+            narrow.steps(),
+            wide.steps()
+        );
+    }
+
+    #[test]
     fn count_scale_handles_tiny_maxima() {
-        assert_eq!(CountScale::new(0).height(0), 0.0);
-        assert!((CountScale::new(1).height(1) - 1.0).abs() < 1e-9);
-        assert!((CountScale::new(2).height(1) - 0.5).abs() < 1e-9);
-        assert!((CountScale::new(3).height(2) - 2.0 / 3.0).abs() < 1e-9);
+        assert_eq!(CountScale::with_range(0, 0).height(0), 0.0);
+        assert!((CountScale::with_range(1, 1).height(1) - 1.0).abs() < 1e-9);
+        assert!((CountScale::with_range(1, 2).height(1) - 0.5).abs() < 1e-9);
+        assert!((CountScale::with_range(1, 3).height(2) - 2.0 / 3.0).abs() < 1e-9);
     }
 
     fn bare_commit(timestamp: i64) -> Commit {
