@@ -151,6 +151,11 @@ impl CountScale {
         };
         ((band as f64 + frac) / bands).clamp(0.0, 1.0)
     }
+
+    /// Count values at the band boundaries, including zero and the visible max.
+    pub fn steps(&self) -> &[u64] {
+        &self.breaks
+    }
 }
 
 /// Aggregate commits into one bucket per terminal column.

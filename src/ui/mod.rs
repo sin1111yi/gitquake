@@ -286,6 +286,14 @@ mod tests {
     }
 
     #[test]
+    fn waveform_has_a_y_axis_on_the_left() {
+        let mut app = app_with(14, false);
+        let text = render(&mut app, 120, 40);
+        assert!(text.contains('┤'), "expected y-axis ticks:\n{text}");
+        assert!(text.contains("0└"), "expected y-axis origin:\n{text}");
+    }
+
+    #[test]
     fn renders_detail_side_by_side() {
         let mut app = app_with(10, true);
         let text = render(&mut app, 130, 40);

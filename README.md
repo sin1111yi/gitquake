@@ -104,7 +104,9 @@ selects its commit, clicking a list row selects it, and the wheel scrolls the li
 ### The waveform
 
 Each column is a slice of history, and its height is the number of commits inside that
-slice. Heights are drawn with eighth blocks (`▁▂▃▄▅▆▇█`) for sub-cell precision.
+slice. Heights are drawn with eighth blocks (`▁▂▃▄▅▆▇█`) for sub-cell precision. A
+labelled y-axis on the left shows the count at each band boundary, from `0` up to the
+largest visible column.
 
 Counts use a piecewise scale. Bands double — `0–1`, `1–2`, `2–4`, `4–8`, … up to the
 largest count currently visible — and every band gets the same vertical space, with a
@@ -262,7 +264,8 @@ the built-in ramps and the theme directory.
 
 ## Plain mode
 
-`--plain` (or piping) prints a header, a 10-row waveform, the axis, and the commit list
+`--plain` (or piping) prints a header, a 10-row waveform with its left y-axis, the
+time axis, and the commit list
 with ANSI colours. It is deterministic: no alternate screen, no mouse, no timers.
 Useful for `less -R`, CI logs, screenshots, or embedding in other tools.
 

@@ -6,7 +6,7 @@ use anyhow::Result;
 use crate::rows::{self, RowCtx};
 use crate::stats;
 use crate::ui::app::App;
-use crate::ui::wave::Grid;
+use crate::ui::wave::{self, Grid};
 use crate::util;
 
 /// Render the whole view as plain ANSI text (for pipes, `--plain`, or `$PAGER`).
@@ -93,8 +93,35 @@ pub fn print(app: &App, color: bool) -> Result<()> {
     writeln!(out)?;
 
     let wave_h = 10usize;
-    let grid = Grid::build(app, width, wave_h);
-    for row in &grid.rows {
+    let show_y_axis = width >= 30;
+    let gutter = if show_y_axis {
+        wave::Y_AXIS_WIDTH as usize
+    } else {
+        0
+    };
+    let plot_w = width - gutter;
+    let grid = Grid::build(app, plot_w, wave_h);
+    let y_labels = wave::y_axis_labels(&grid.count_scale, wave_h);
+    for (y, row) in grid.rows.iter().enumerate() {
+        if show_y_axis {
+            let label = y_labels
+                .iter()
+                .find(|(r, _)| *r == y)
+                .map(|(_, c)| util::truncate_w(&rows::compact_number(*c), 4))
+                .unwrap_or_default();
+            write!(
+                out,
+                "{}{}",
+                util::paint(&format!("{label:>4} "), dim, q, color, false),
+                util::paint(
+                    if label.is_empty() { "│" } else { "┤" },
+                    app.theme.roles.axis,
+                    q,
+                    color,
+                    false
+                )
+            )?;
+        }
         let mut line = String::new();
         for cell in row {
             if cell.ch == ' ' {
@@ -107,10 +134,10 @@ pub fn print(app: &App, color: bool) -> Result<()> {
     }
 
     // axis
-    let unit = stats::choose_unit(app.window.span(), width);
+    let unit = stats::choose_unit(app.window.span(), plot_w);
     let proj = stats::Projection::new(
         app.window,
-        width,
+        plot_w,
         &app.commits,
         app.cfg.general.wave_axis.weight(),
     );
@@ -119,21 +146,29 @@ pub fn print(app: &App, color: bool) -> Result<()> {
     } else {
         stats::ticks_ranked(&proj, &app.commits)
     };
-    let mut axis = vec![' '; width];
-    let mut text = vec![' '; width];
+    let mut axis = vec![' '; plot_w];
+    let mut text = vec![' '; plot_w];
     let mut next_free = 0usize;
     for (col, label) in &labels {
-        if *col < width {
+        if *col < plot_w {
             axis[*col] = '┴';
         }
         let lw = util::display_width(label);
         let start = if *col == 0 { 0 } else { (*col).max(next_free) };
-        if start + lw <= width {
+        if start + lw <= plot_w {
             for (i, ch) in label.chars().enumerate() {
                 text[start + i] = ch;
             }
             next_free = start + lw + 2;
         }
+    }
+    if show_y_axis {
+        write!(
+            out,
+            "{}{}",
+            util::paint("   0 ", dim, q, color, false),
+            util::paint("└", app.theme.roles.axis, q, color, false)
+        )?;
     }
     for c in axis {
         if c == '┴' {
@@ -148,6 +183,7 @@ pub fn print(app: &App, color: bool) -> Result<()> {
     }
     writeln!(out)?;
     let label_line: String = text.iter().collect();
+    write!(out, "{}", " ".repeat(gutter))?;
     writeln!(
         out,
         "{}",

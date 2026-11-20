@@ -6,12 +6,18 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::config::GlyphSet;
 use crate::rows::{self, heat_t};
-use crate::stats::{self, Projection};
+use crate::stats::{self, CountScale, Projection};
 use crate::theme::Rgb;
 use crate::ui::app::{App, RectI};
 use crate::util;
 
 const EIGHTHS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+
+/// Labels are right-aligned in four columns, followed by a space and the axis
+/// line itself.
+const Y_AXIS_LABEL_WIDTH: usize = 4;
+/// Total width reserved for the y-axis and its labels.
+pub const Y_AXIS_WIDTH: u16 = Y_AXIS_LABEL_WIDTH as u16 + 2;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Cell {
@@ -28,6 +34,7 @@ impl Cell {
 pub struct Grid {
     pub rows: Vec<Vec<Cell>>,
     pub columns: Vec<Option<usize>>,
+    pub count_scale: CountScale,
 }
 
 fn full_glyph(set: GlyphSet) -> char {
@@ -102,8 +109,14 @@ impl Grid {
         let buckets = stats::project_buckets(&app.commits, &proj, width);
         let mut columns = vec![None; width];
         let mut rows = vec![vec![Cell::blank(app.theme.roles.axis); width]; height];
+        let max_count = buckets.iter().map(|b| b.count as u64).max().unwrap_or(0);
+        let count_scale = CountScale::new(max_count);
         if width == 0 || height == 0 {
-            return Grid { rows, columns };
+            return Grid {
+                rows,
+                columns,
+                count_scale,
+            };
         }
 
         let selected_col = app.selected_commit_index().and_then(|ci| {
@@ -124,9 +137,6 @@ impl Grid {
                 }
             }
         }
-
-        let max_count = buckets.iter().map(|b| b.count as u64).max().unwrap_or(0);
-        let count_scale = stats::CountScale::new(max_count);
 
         for (x, bucket) in buckets.iter().enumerate() {
             columns[x] = bucket.commit;
@@ -155,8 +165,38 @@ impl Grid {
             stamp(&mut rows, x, 0, height, n8, fg, g.glyphs);
         }
 
-        Grid { rows, columns }
+        Grid {
+            rows,
+            columns,
+            count_scale,
+        }
     }
+}
+
+/// Tick rows for the y-axis, measured from the top of the wave grid.
+///
+/// Only the band boundaries that fit without overlapping are returned. The
+/// scale is piecewise, so the spacing is deliberately not linear in the count.
+pub fn y_axis_labels(scale: &CountScale, grid_h: usize) -> Vec<(usize, u64)> {
+    if grid_h == 0 {
+        return Vec::new();
+    }
+    let mut used = vec![false; grid_h];
+    let mut labels = Vec::new();
+    // Walk from the top (the visible maximum) down, so the most important
+    // label wins when two boundaries land on the same terminal row.
+    for &count in scale.steps().iter().skip(1).rev() {
+        let t = scale.height(count);
+        let row = ((1.0 - t) * grid_h as f64).round() as usize;
+        let row = row.min(grid_h - 1);
+        if used[row] {
+            continue;
+        }
+        used[row] = true;
+        labels.push((row, count));
+    }
+    labels.sort_by_key(|(row, _)| *row);
+    labels
 }
 
 fn cursor_column(app: &App, width: usize) -> Option<usize> {
@@ -177,27 +217,41 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
     if area.width == 0 || area.height == 0 {
         return;
     }
-    app.wave_region = Some(RectI {
-        x: area.x,
+
+    // Keep the y-axis out of the way on tiny terminals, where labels would
+    // leave too little room for the waveform itself.
+    let show_y_axis = area.width >= 30 && area.height >= 6;
+    let gutter = if show_y_axis { Y_AXIS_WIDTH } else { 0 };
+    let plot = Rect {
+        x: area.x + gutter,
         y: area.y,
-        w: area.width,
-        h: area.height,
+        width: area.width - gutter,
+        height: area.height,
+    };
+    app.wave_region = Some(RectI {
+        x: plot.x,
+        y: plot.y,
+        w: plot.width,
+        h: plot.height,
     });
+    app.columns.clear();
 
     let axis_h = if area.height >= 4 { 2 } else { 0 };
     let grid_h = area.height.saturating_sub(axis_h) as usize;
+    let mut scale = None;
 
     if grid_h > 0 {
-        let grid = Grid::build(app, area.width as usize, grid_h);
+        let grid = Grid::build(app, plot.width as usize, grid_h);
         app.columns = grid.columns.clone();
+        scale = Some(grid.count_scale.clone());
         let buf = f.buffer_mut();
         for (y, row) in grid.rows.iter().enumerate() {
             for (x, cell) in row.iter().enumerate() {
                 if cell.ch == ' ' {
                     continue;
                 }
-                let bx = area.x + x as u16;
-                let by = area.y + y as u16;
+                let bx = plot.x + x as u16;
+                let by = plot.y + y as u16;
                 let style = Style::default().fg(app.quality.to_ratatui(cell.fg));
                 if let Some(c) = buf.cell_mut((bx, by)) {
                     let mut tmp = [0u8; 4];
@@ -208,17 +262,90 @@ pub fn draw(f: &mut Frame, app: &mut App, area: Rect) {
         }
     }
 
+    if let Some(scale) = scale {
+        draw_y_axis(f, app, area, plot, grid_h, &scale, axis_h > 0);
+    }
+
     if axis_h > 0 {
         let proj = Projection::new(
             app.window,
-            area.width as usize,
+            plot.width as usize,
             &app.commits,
             app.cfg.general.wave_axis.weight(),
         );
-        draw_axis(f, app, area, area.y + grid_h as u16, &proj);
+        draw_axis(f, app, plot, plot.y + grid_h as u16, &proj);
     }
 
-    draw_card(f, app, area);
+    draw_card(f, app, area, plot);
+}
+
+fn draw_y_axis(
+    f: &mut Frame,
+    app: &App,
+    area: Rect,
+    plot: Rect,
+    grid_h: usize,
+    scale: &CountScale,
+    has_x_axis: bool,
+) {
+    if plot.x <= area.x || grid_h == 0 {
+        return;
+    }
+    let line_x = plot.x - 1;
+    let label_w = (line_x - area.x) as usize;
+    let axis_style = Style::default().fg(app.quality.to_ratatui(app.theme.roles.axis));
+    let label_style = Style::default().fg(app.quality.to_ratatui(app.theme.roles.dim));
+    let bottom_row = if has_x_axis { grid_h } else { grid_h - 1 };
+    let buf = f.buffer_mut();
+
+    // Clear the gutter so old labels never survive a narrower scale.
+    for y in 0..=bottom_row {
+        for x in area.x..line_x {
+            if let Some(c) = buf.cell_mut((x, area.y + y as u16)) {
+                c.set_symbol(" ");
+                c.set_style(axis_style);
+            }
+        }
+    }
+
+    for y in 0..grid_h {
+        if let Some(c) = buf.cell_mut((line_x, area.y + y as u16)) {
+            c.set_symbol("│");
+            c.set_style(axis_style);
+        }
+    }
+
+    for (row, count) in y_axis_labels(scale, grid_h) {
+        if row == bottom_row {
+            continue;
+        }
+        let label = util::truncate_w(&rows::compact_number(count), label_w);
+        let start = area.x + label_w.saturating_sub(util::display_width(&label)) as u16;
+        for (i, ch) in label.chars().enumerate() {
+            if let Some(c) = buf.cell_mut((start + i as u16, area.y + row as u16)) {
+                c.set_symbol(ch.encode_utf8(&mut [0u8; 4]));
+                c.set_style(label_style);
+            }
+        }
+        if let Some(c) = buf.cell_mut((line_x, area.y + row as u16)) {
+            c.set_symbol("┤");
+            c.set_style(axis_style);
+        }
+    }
+
+    // Zero sits on the x-axis, or on the baseline if there is no x-axis.
+    let zero = "0";
+    let start = area.x + label_w.saturating_sub(zero.len()) as u16;
+    for (i, ch) in zero.chars().enumerate() {
+        if let Some(c) = buf.cell_mut((start + i as u16, area.y + bottom_row as u16)) {
+            c.set_symbol(ch.encode_utf8(&mut [0u8; 4]));
+            c.set_style(label_style);
+        }
+    }
+    if let Some(c) = buf.cell_mut((line_x, area.y + bottom_row as u16)) {
+        c.set_symbol("└");
+        c.set_style(axis_style);
+    }
 }
 
 fn draw_axis(f: &mut Frame, app: &App, area: Rect, y: u16, proj: &Projection) {
@@ -290,11 +417,11 @@ fn draw_axis(f: &mut Frame, app: &App, area: Rect, y: u16, proj: &Projection) {
     }
 }
 
-fn draw_card(f: &mut Frame, app: &App, area: Rect) {
+fn draw_card(f: &mut Frame, app: &App, area: Rect, plot: Rect) {
     let Some(c) = app.selected_commit() else {
         return;
     };
-    if area.width < 24 || area.height < 7 {
+    if plot.width < 24 || area.height < 7 {
         return;
     }
     let g = &app.cfg.general;
@@ -357,15 +484,17 @@ fn draw_card(f: &mut Frame, app: &App, area: Rect) {
         .map(|l| l.width())
         .max()
         .unwrap_or(20)
-        .min(area.width as usize - 2);
+        .min(plot.width as usize - 2);
     // One column of breathing room inside each side of the border.
-    let pw = (content_w as u16 + 3).max(20).min(area.width - 2);
+    let pw = (content_w as u16 + 3)
+        .max(20)
+        .min(plot.width.saturating_sub(2));
     let ph = 6u16.min(area.height);
 
-    let cursor = cursor_column(app, area.width as usize).unwrap_or(area.width as usize / 2);
+    let cursor = cursor_column(app, plot.width as usize).unwrap_or(plot.width as usize / 2);
     let ideal = cursor as u16 + 2;
     let max_x = area.x + area.width - pw - 1;
-    let px = (area.x + ideal).min(max_x).max(area.x + 1);
+    let px = (plot.x + ideal).min(max_x).max(plot.x + 1);
     let py = area.y + 1;
 
     let rect = Rect::new(px, py, pw, ph);
@@ -376,4 +505,25 @@ fn draw_card(f: &mut Frame, app: &App, area: Rect) {
         .style(Style::default().bg(app.quality.to_ratatui(app.theme.roles.selected_bg)));
     let para = Paragraph::new(lines).block(block);
     f.render_widget(para, rect);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn y_axis_labels_are_sorted_and_fit_the_grid() {
+        let labels = y_axis_labels(&CountScale::new(150), 20);
+        assert_eq!(labels.first(), Some(&(0, 150)));
+        assert!(labels.windows(2).all(|w| w[0].0 < w[1].0));
+        assert!(labels.iter().all(|(row, _)| *row < 20));
+    }
+
+    #[test]
+    fn y_axis_labels_keep_the_visible_maximum() {
+        for max in [1, 2, 7, 150, 10_000] {
+            let labels = y_axis_labels(&CountScale::new(max), 8);
+            assert_eq!(labels.first().map(|(_, c)| *c), Some(max));
+        }
+    }
 }
