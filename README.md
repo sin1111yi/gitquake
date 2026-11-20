@@ -29,11 +29,12 @@ with one `git log --numstat` call.
 - **Time is the x axis.** Long gaps are visibly long. A burst of commits is a cluster,
   not just more lines in a list.
 - **Height is activity.** A column is as tall as the number of commits that landed in
-  it. The scale is piecewise (bands double: 1, 2, 4, 8, …), so 100 and 150 commits stay
-  visibly different instead of saturating against one huge week.
+  it. The busiest visible column sets the scale, split into eight equal bands, so a
+  quiet month does not inherit the shape of a busy year.
 - **Colour is impact.** The colour of a column is the total `insertions + deletions`
-  for every commit in it, normalised against the 95th percentile and mapped through a
-  log curve. A busy week and a heavy week are two different things.
+  for every commit in it, normalised against the 95th percentile of visible column
+  totals and mapped through a log curve. A busy week and a heavy week are two
+  different things.
 - **The list is still there.** Every bar has a row with refs, author, age and `+/-`;
   selecting a commit draws a card over the wave and a detail pane below or beside it.
 - **Nothing is hidden by search.** Matching commits stay bright and everything else
@@ -116,15 +117,19 @@ height. Only visible columns are measured, so zooming, panning or resizing redis
 the local highs and lows without paying for history that is off screen.
 
 Colour is a separate value: the sum of `insertions + deletions` for every commit in
-the column, interpolated over the theme's five-stop heat ramp and normalised against
-the 95th percentile of single-commit volumes. The legend in the header shows the
-current ramp and reference:
+the column, interpolated over the theme's five-stop heat ramp. Because a column can
+contain dozens of commits, it is normalised against the 95th percentile of the
+**visible column totals**, not against a single commit. The list and detail pane keep
+using single-commit and per-file volumes, so a row's bar and a file's bar remain
+comparable across commits.
+
+The legend in the header shows the current ramp:
 
 ```
-heat ████████████████  low → 500 lines → high
+heat ████████████████  low → more lines → high
 ```
 
-There is no separate density strip: height already is density, and colour is volume.
+There is no separate density strip: height already is activity, and colour is volume.
 A column made only of merges still has height, because merges are part of the
 history, but it stays dim because git reports no diffstat for them.
 
@@ -150,9 +155,9 @@ than `gap_hours`, a separator like `┄┄ 10 days ┄┄` marks the quiet stret
 
 Press `↵` to open it. On wide terminals it sits to the right of the list; on narrow
 ones it moves below. It shows the commit header, author, absolute and relative time,
-merge parents, totals, and one proportional bar per changed file. All file bars use
-the same global heat reference as the main waveform, so file sizes stay comparable
-between commits.
+merge parents, totals, and one proportional bar per changed file. File bars use the
+global single-commit heat reference, so file sizes stay comparable between commits
+(the waveform normalises whole-column totals separately).
 
 ### The full commit
 
@@ -161,6 +166,8 @@ record: hash, author and committer dates, the whole message, `--stat`, and the p
 with green/red hunks. Scroll with `j`/`k` or `PgUp`/`PgDn`, jump with `g`/`G`, and
 close with `v`, `q` or `Esc`; closing the viewer leaves `gitquake` running.
 
+![The full commit viewer showing the stat and patch](asset/screenshot-viewer.png)
+
 Patches are capped at 8000 lines and end with a truncation marker. The same data is
 available directly:
 
@@ -168,6 +175,24 @@ available directly:
 git show <hash>          # header + message + patch
 git show --stat <hash>   # summary only
 ```
+
+### Search, help and themes
+
+Search dims rather than hides. The wave, the list and the detail pane keep their shape;
+only commits that do not match lose their colour, so the position of a hit still has
+context around it.
+
+![Search for “initial” dimming all other commits in the waveform and list](asset/screenshot-search.png)
+
+`?` opens the key map without leaving the history view. It also shows the active theme,
+the heat mapping and the config file currently in use.
+
+![The help overlay listing every key and the active theme](asset/screenshot-help.png)
+
+`T` cycles the built-in palettes: inferno, magma, viridis, ice, mono and solarized.
+Custom ramps live in theme files next to the config.
+
+![The same repository using the viridis theme](asset/screenshot-theme.png)
 
 ## How the waveform is computed
 
@@ -191,14 +216,16 @@ git show --stat <hash>   # summary only
 
 - **Value** — for each column, the sum of insertions + deletions over all commits in
   it. Binary files count as zero.
-- **Reference** — the 95th percentile of **single-commit** volumes
-  (`heat_percentile`), not the maximum, so one imported vendor dump cannot flatten
-  everything else.
+- **Reference** — for a waveform column, the 95th percentile of the visible **column
+  totals**; for a list row or a detail file bar, the 95th percentile of single-commit
+  or per-file volumes. Using percentiles instead of the maximum keeps one imported
+  vendor dump from flattening everything else.
 - **Mapping** — `log(1 + value) / log(1 + reference)`, then an optional gamma
   (`heat_gamma`). `heat_scale = "linear"` switches to plain proportion.
-- **Shared scale** — the compact list bars and the per-file bars in the detail pane use
-  the same reference and mapping, so a file can be compared with the wave and with
-  other commits.
+- **Shared scale** — all rows in the list share the commit reference, and all files in
+  the detail pane share the file reference, so values remain comparable across
+  commits; the waveform has its own column-total reference because a column sums many
+  commits.
 - **Merges** — git reports no diffstat for them, so they add height but no colour; a
   merge-only column is drawn in the dim role. In the list they are prefixed with `⑂`
   and labelled `merge`.
@@ -297,7 +324,7 @@ src/plain.rs    non-interactive rendering
 ```
 
 The logo is `asset/ascii.txt` rendered with the inferno ramp; the screenshots are
-captured from a demo repository with 131 commits across three branches.
+captured from a demo repository with 1,863 commits across three branches.
 
 ## License
 

@@ -119,6 +119,17 @@ impl Grid {
         visible_counts.sort_unstable();
         let max_count = visible_counts.last().copied().unwrap_or(0);
         let count_scale = CountScale::from_max(max_count);
+
+        // Column colours are totals, so they need a reference that describes
+        // totals rather than single commits. Using the commit-level p95 here
+        // makes every busy column clamp to the top of the ramp.
+        let mut visible_volumes: Vec<u64> = buckets
+            .iter()
+            .filter(|b| b.count > 0)
+            .map(|b| b.volume)
+            .collect();
+        visible_volumes.sort_unstable();
+        let volume_reference = stats::percentile(&visible_volumes, g.heat_percentile).max(1);
         if width == 0 || height == 0 {
             return Grid {
                 rows,
@@ -156,7 +167,7 @@ impl Grid {
             let n8 = (h * (height * 8) as f64).round() as usize;
             let n8 = n8.max(1);
 
-            let t = rows::heat_value(bucket.volume, app.p95, g);
+            let t = rows::heat_value(bucket.volume, volume_reference, g);
             let base = if bucket.volume == 0 {
                 app.theme.roles.dim
             } else {

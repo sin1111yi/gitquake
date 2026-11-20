@@ -45,8 +45,9 @@ pub fn draw(f: &mut Frame, app: &App, frame_area: Rect) {
     let w = (frame_area.width.saturating_sub(8))
         .clamp(40, 96)
         .min(frame_area.width);
-    let rows = Action::ALL.len() as u16;
-    let h = (rows + 9).min(frame_area.height.saturating_sub(2));
+    let footer_rows = 4u16;
+    let per_col = (Action::ALL.len() as u16).div_ceil(2).max(1);
+    let h = (per_col + footer_rows + 3).min(frame_area.height.saturating_sub(2));
     let x = frame_area.x + (frame_area.width - w) / 2;
     let y = frame_area.y + (frame_area.height - h) / 2;
     let area = Rect::new(x, y, w, h);
@@ -70,12 +71,11 @@ pub fn draw(f: &mut Frame, app: &App, frame_area: Rect) {
         .fg(app.quality.to_ratatui(app.theme.roles.accent))
         .add_modifier(Modifier::BOLD);
 
-    let footer_rows = 4u16;
     let list_h = inner.height.saturating_sub(footer_rows);
     let cols =
         Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)]).split(inner);
 
-    let per_col = (Action::ALL.len() as u16).div_ceil(2).max(1) as usize;
+    let per_col = per_col as usize;
     for (ci, col) in cols.iter().enumerate() {
         let mut lines: Vec<Line> = Vec::new();
         for (i, action) in Action::ALL.iter().enumerate() {

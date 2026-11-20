@@ -89,10 +89,7 @@ pub fn draw_header(f: &mut Frame, app: &App, area: Rect) {
                 Style::default().fg(app.quality.to_ratatui(app.theme.heat(t))),
             ));
         }
-        legend.push(Span::styled(
-            format!("  low → {} lines → high", crate::util::comma(app.p95)),
-            dim,
-        ));
+        legend.push(Span::styled("  low → more lines → high", dim));
         f.render_widget(Paragraph::new(Line::from(legend)), rows[2]);
     }
 }
