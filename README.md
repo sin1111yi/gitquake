@@ -4,7 +4,8 @@
 
 <p align="center">
   <b>Git history, as a waveform.</b><br>
-  Every commit is a bar. Its height and colour are how much that commit changed.
+  Each column is a slice of history. Height is how many commits landed; colour is how
+  many lines changed.
 </p>
 
 <p align="center">
@@ -15,9 +16,10 @@
 ![gitquake showing a wave of commits, an info card and the commit list](asset/screenshot-main.png)
 
 `gitquake` turns a repository's history into a full-screen waveform. Time runs left
-to right, each commit is a vertical bar, and quieter weeks become valleys while a day
-of refactoring becomes a ridge. Instead of reading `git log --graph` line by line, you
-get the shape of the project at a glance — and can still drill into any commit.
+to right, each column collects the commits from one slice of it, and quieter weeks
+become valleys while a day of refactoring becomes a ridge. Instead of reading
+`git log --graph` line by line, you get the shape of the project at a glance — and
+can still drill into any commit.
 
 It is a terminal UI built with Rust and ratatui. No libgit2: the whole history is read
 with one `git log --numstat` call.
@@ -26,9 +28,12 @@ with one `git log --numstat` call.
 
 - **Time is the x axis.** Long gaps are visibly long. A burst of commits is a cluster,
   not just more lines in a list.
-- **Height and heat share one value.** `insertions + deletions`, normalised against the
-  95th percentile and mapped through a log curve. A ten-line fix cannot glow like a
-  vendored dump.
+- **Height is activity.** A column is as tall as the number of commits that landed in
+  it. The scale is piecewise (bands double: 1, 2, 4, 8, …), so 100 and 150 commits stay
+  visibly different instead of saturating against one huge week.
+- **Colour is impact.** The colour of a column is the total `insertions + deletions`
+  for every commit in it, normalised against the 95th percentile and mapped through a
+  log curve. A busy week and a heavy week are two different things.
 - **The list is still there.** Every bar has a row with refs, author, age and `+/-`;
   selecting a commit draws a card over the wave and a detail pane below or beside it.
 - **Nothing is hidden by search.** Matching commits stay bright and everything else
@@ -98,19 +103,27 @@ selects its commit, clicking a list row selects it, and the wheel scrolls the li
 
 ### The waveform
 
-Each column is a slice of history; each bar is the commit with the largest change in
-that column. Bar height uses eighth blocks (`▁▂▃▄▅▆▇█`) so a 3-line commit and a 300-line
-commit are both visible without quantising everything to whole cells.
+Each column is a slice of history, and its height is the number of commits inside that
+slice. Heights are drawn with eighth blocks (`▁▂▃▄▅▆▇█`) for sub-cell precision.
 
-The colour is the same normalised value, interpolated over the theme's five-stop heat
-ramp. The legend in the header shows the current ramp and reference:
+Counts use a piecewise scale. Bands double — `0–1`, `1–2`, `2–4`, `4–8`, … up to the
+largest count currently visible — and every band gets the same vertical space, with a
+linear ramp inside the band. That makes `100` and `150` commits visibly different
+instead of both flattening near the top of a smooth curve. Only visible columns are
+measured, so zooming or panning never pays for history that is off screen.
+
+Colour is a separate value: the sum of `insertions + deletions` for every commit in
+the column, interpolated over the theme's five-stop heat ramp and normalised against
+the 95th percentile of single-commit volumes. The legend in the header shows the
+current ramp and reference:
 
 ```
 heat ████████████████  low → 500 lines → high
 ```
 
-A one-row density strip below the mountains shows how many commits landed in each
-column, which separates "one huge commit" from "a hundred small ones".
+There is no separate density strip: height already is density, and colour is volume.
+A column made only of merges still has height, because merges are part of the
+history, but it stays dim because git reports no diffstat for them.
 
 The x axis has two modes:
 
@@ -153,19 +166,34 @@ git show <hash>          # header + message + patch
 git show --stat <hash>   # summary only
 ```
 
-## How the heat is computed
+## How the waveform is computed
 
-- **Value** — insertions + deletions from `git log --numstat`. Binary files count as
-  zero.
-- **Reference** — the 95th percentile of those values (`heat_percentile`), not the
-  maximum, so one imported vendor dump cannot flatten everything else.
+### Height — commits per column
+
+- Commits are bucketed into terminal columns using the current axis projection.
+- `CountScale` builds bands from the largest **visible** bucket: `0–1`, `1–2`, `2–4`,
+  `4–8`, … up to that maximum, each occupying an equal share of the waveform height.
+- Within a band the height is linear, so values close together inside a band remain
+  distinguishable. With a maximum of 150, a column of 100 commits sits around 84% of
+  full height and 150 reaches 100%.
+- Off-screen commits are excluded from both the bucket loop and the maximum, so a
+  narrow zoom stays cheap even in a very large repository.
+
+### Colour — change volume per column
+
+- **Value** — for each column, the sum of insertions + deletions over all commits in
+  it. Binary files count as zero.
+- **Reference** — the 95th percentile of **single-commit** volumes
+  (`heat_percentile`), not the maximum, so one imported vendor dump cannot flatten
+  everything else.
 - **Mapping** — `log(1 + value) / log(1 + reference)`, then an optional gamma
   (`heat_gamma`). `heat_scale = "linear"` switches to plain proportion.
-- **Height** — the same normalised value used for the colour, drawn with eighth
-  blocks for sub-cell precision. Wave bars, compact list bars, and per-file detail bars
-  all share it.
-- **Merges** — git reports no diffstat for them, so they are drawn as a one-eighth mark
-  in the dim colour and labelled `merge`.
+- **Shared scale** — the compact list bars and the per-file bars in the detail pane use
+  the same reference and mapping, so a file can be compared with the wave and with
+  other commits.
+- **Merges** — git reports no diffstat for them, so they add height but no colour; a
+  merge-only column is drawn in the dim role. In the list they are prefixed with `⑂`
+  and labelled `merge`.
 
 ## Configuration
 
@@ -185,11 +213,9 @@ relative_time = true       # false -> use date_format
 date_format = "%Y-%m-%d"
 mouse = true
 wave_height = 0.55         # fraction of the body given to the waveform
-wave_mode = "volume"       # volume | density | both
 wave_axis = "blend"        # blend | time
-density_strip = true
-heat_scale = "log"         # log | linear
-heat_percentile = 95
+heat_scale = "log"         # colour mapping: log | linear
+heat_percentile = 95       # reference percentile for colour
 heat_gamma = 1.0
 glyphs = "eighth"          # eighth | block | ascii
 bar_width = 20

@@ -102,8 +102,55 @@ impl Window {
 #[derive(Debug, Clone, Copy)]
 pub struct Bucket {
     pub count: u32,
+    /// Total insertions + deletions for every commit in this column.
     pub volume: u64,
+    /// Largest single-commit volume, used to pick a representative commit.
+    pub max_volume: u64,
     pub commit: Option<usize>,
+}
+
+/// Piecewise-linear scale for commit counts.
+///
+/// Bands are powers of two (`0-1`, `1-2`, `2-4`, `4-8`, ...), and every band
+/// receives the same amount of vertical space. This keeps 100 and 150 commits
+/// visibly apart instead of letting a smooth saturation curve flatten them.
+/// Only the largest count among the visible columns is needed.
+#[derive(Debug, Clone)]
+pub struct CountScale {
+    breaks: Vec<u64>,
+}
+
+impl CountScale {
+    pub fn new(max_count: u64) -> CountScale {
+        let max = max_count.max(1);
+        let mut breaks = vec![0u64];
+        let mut next = 1u64;
+        while next < max {
+            breaks.push(next);
+            next = next.saturating_mul(2);
+        }
+        breaks.push(max);
+        CountScale { breaks }
+    }
+
+    /// Map a count in `0..=max_count` to `0..=1`.
+    pub fn height(&self, count: u64) -> f64 {
+        if count == 0 {
+            return 0.0;
+        }
+        let max = *self.breaks.last().unwrap_or(&1);
+        let count = count.min(max);
+        let bands = (self.breaks.len() - 1) as f64;
+        let band = (self.breaks.partition_point(|&b| b <= count) - 1).min(self.breaks.len() - 2);
+        let lo = self.breaks[band];
+        let hi = self.breaks[band + 1];
+        let frac = if hi > lo {
+            (count - lo) as f64 / (hi - lo) as f64
+        } else {
+            1.0
+        };
+        ((band as f64 + frac) / bands).clamp(0.0, 1.0)
+    }
 }
 
 /// Aggregate commits into one bucket per terminal column.
@@ -113,6 +160,7 @@ pub fn bucketize(commits: &[Commit], window: Window, width: usize) -> Vec<Bucket
         Bucket {
             count: 0,
             volume: 0,
+            max_volume: 0,
             commit: None,
         };
         width
@@ -120,9 +168,11 @@ pub fn bucketize(commits: &[Commit], window: Window, width: usize) -> Vec<Bucket
     for (idx, c) in commits.iter().enumerate() {
         if let Some(x) = window.x(c.timestamp, width) {
             let col = &mut cols[x];
+            let v = c.volume();
             col.count += 1;
-            if c.volume() >= col.volume {
-                col.volume = c.volume();
+            col.volume += v;
+            if col.commit.is_none() || v >= col.max_volume {
+                col.max_volume = v;
                 col.commit = Some(idx);
             }
         }
@@ -145,13 +195,23 @@ pub struct Projection {
 }
 
 impl Projection {
+    /// History from `git::load` is sorted newest-first, so the visible range
+    /// can be found with binary search instead of walking the whole history on
+    /// every frame. Unsorted input still works through the fallback path.
     pub fn new(window: Window, width: usize, commits: &[Commit], weight: f64) -> Projection {
-        let mut order: Vec<usize> = (0..commits.len())
-            .filter(|&i| {
-                let t = commits[i].timestamp;
-                t >= window.start && t <= window.end
-            })
-            .collect();
+        let sorted = commits.windows(2).all(|w| w[0].timestamp >= w[1].timestamp);
+        let mut order: Vec<usize> = if sorted {
+            let first = commits.partition_point(|c| c.timestamp > window.end);
+            let last = commits.partition_point(|c| c.timestamp >= window.start);
+            (first..last).rev().collect()
+        } else {
+            (0..commits.len())
+                .filter(|&i| {
+                    let t = commits[i].timestamp;
+                    t >= window.start && t <= window.end
+                })
+                .collect()
+        };
         order.sort_by_key(|&i| (commits[i].timestamp, i));
         let times = order.iter().map(|&i| commits[i].timestamp).collect();
         Projection {
@@ -230,6 +290,7 @@ pub fn project_buckets(commits: &[Commit], proj: &Projection, width: usize) -> V
         Bucket {
             count: 0,
             volume: 0,
+            max_volume: 0,
             commit: None,
         };
         width
@@ -240,10 +301,12 @@ pub fn project_buckets(commits: &[Commit], proj: &Projection, width: usize) -> V
             continue;
         }
         let c = &commits[ci];
+        let v = c.volume();
         let col = &mut cols[x];
         col.count += 1;
-        if col.commit.is_none() || c.volume() >= col.volume {
-            col.volume = c.volume();
+        col.volume += v;
+        if col.commit.is_none() || v >= col.max_volume {
+            col.max_volume = v;
             col.commit = Some(ci);
         }
     }
@@ -526,5 +589,59 @@ mod tests {
             width += 1;
         }
         assert!(width > 1);
+    }
+
+    #[test]
+    fn count_scale_separates_large_counts() {
+        let scale = CountScale::new(150);
+        assert_eq!(scale.height(0), 0.0);
+        assert!((scale.height(150) - 1.0).abs() < 1e-9);
+        assert!(scale.height(100) > scale.height(64));
+        assert!(scale.height(128) > scale.height(100));
+        assert!(scale.height(150) > scale.height(128));
+        // 100 and 150 must not collapse onto the same row.
+        assert!(scale.height(150) - scale.height(100) > 0.1);
+
+        let wide = CountScale::new(10_000);
+        assert!(wide.height(150) > wide.height(100));
+        assert!(wide.height(150) - wide.height(100) > 0.01);
+    }
+
+    #[test]
+    fn count_scale_handles_tiny_maxima() {
+        assert_eq!(CountScale::new(0).height(0), 0.0);
+        assert!((CountScale::new(1).height(1) - 1.0).abs() < 1e-9);
+        assert!((CountScale::new(2).height(1) - 0.5).abs() < 1e-9);
+        assert!((CountScale::new(3).height(2) - 2.0 / 3.0).abs() < 1e-9);
+    }
+
+    fn bare_commit(timestamp: i64) -> Commit {
+        Commit {
+            hash: format!("{timestamp:040x}"),
+            short: format!("{timestamp:x}"),
+            author_name: "Test".into(),
+            author_email: "test@example.com".into(),
+            timestamp,
+            subject: "test".into(),
+            refs: Vec::new(),
+            parents: Vec::new(),
+            files: Vec::new(),
+            insertions: 0,
+            deletions: 0,
+        }
+    }
+
+    #[test]
+    fn projection_only_walks_the_visible_range() {
+        let commits: Vec<Commit> = [100, 90, 80, 70, 60]
+            .iter()
+            .map(|&t| bare_commit(t))
+            .collect();
+        let proj = Projection::new(Window::new(75, 95), 80, &commits, 1.0);
+        assert_eq!(proj.order, vec![2, 1]);
+        assert_eq!(proj.times, vec![80, 90]);
+
+        let buckets = project_buckets(&commits, &proj, 80);
+        assert_eq!(buckets.iter().map(|b| b.count).sum::<u32>(), 2);
     }
 }

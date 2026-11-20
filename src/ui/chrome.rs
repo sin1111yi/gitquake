@@ -67,7 +67,7 @@ pub fn draw_header(f: &mut Frame, app: &App, area: Rect) {
         let mut line = vec![Span::styled(format!(" {}", app.window_label()), dim)];
         line.push(Span::styled(
             format!(
-                "   {} · {} · {} · {} · {}",
+                "   {} · {} · count · {} heat · {} · {}",
                 scope,
                 app.theme.name,
                 app.cfg.general.heat_scale.as_str(),

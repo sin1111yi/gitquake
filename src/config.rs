@@ -5,30 +5,6 @@ use crossterm::event::KeyCode;
 
 use crate::theme::Rgb;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WaveMode {
-    Volume,
-    Density,
-    Both,
-}
-impl WaveMode {
-    pub fn parse(s: &str) -> Option<Self> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "volume" => Some(WaveMode::Volume),
-            "density" => Some(WaveMode::Density),
-            "both" => Some(WaveMode::Both),
-            _ => None,
-        }
-    }
-    pub fn as_str(self) -> &'static str {
-        match self {
-            WaveMode::Volume => "volume",
-            WaveMode::Density => "density",
-            WaveMode::Both => "both",
-        }
-    }
-}
-
 /// How commit timestamps map to horizontal position.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WaveAxis {
@@ -141,9 +117,7 @@ pub struct General {
     pub date_format: String,
     pub mouse: bool,
     pub wave_height: f64,
-    pub wave_mode: WaveMode,
     pub wave_axis: WaveAxis,
-    pub density_strip: bool,
     pub heat_scale: HeatScale,
     pub heat_percentile: f64,
     pub heat_gamma: f64,
@@ -164,9 +138,7 @@ impl Default for General {
             date_format: "%Y-%m-%d".into(),
             mouse: true,
             wave_height: 0.55,
-            wave_mode: WaveMode::Volume,
             wave_axis: WaveAxis::Blend,
-            density_strip: true,
             heat_scale: HeatScale::Log,
             heat_percentile: 95.0,
             heat_gamma: 1.0,
@@ -472,14 +444,9 @@ impl Config {
         out.push_str(&format!("mouse = {}\n", g.mouse));
         out.push_str(&format!("wave_height = {:.2}\n", g.wave_height));
         out.push_str(&format!(
-            "wave_mode = {}\n",
-            toml_quote(g.wave_mode.as_str())
-        ));
-        out.push_str(&format!(
             "wave_axis = {}\n",
             toml_quote(g.wave_axis.as_str())
         ));
-        out.push_str(&format!("density_strip = {}\n", g.density_strip));
         out.push_str(&format!(
             "heat_scale = {}\n",
             toml_quote(g.heat_scale.as_str())
@@ -636,9 +603,10 @@ fn apply_general(key: &str, value: &str, cfg: &mut Config, warnings: &mut Vec<St
             set_f64(&mut v, key, value, warnings);
             g.wave_height = v.clamp(0.2, 0.85);
         }
-        "wave_mode" => set_enum(&mut g.wave_mode, key, value, WaveMode::parse, warnings),
         "wave_axis" => set_enum(&mut g.wave_axis, key, value, WaveAxis::parse, warnings),
-        "density_strip" => set_bool(&mut g.density_strip, key, value, warnings),
+        // Removed: height is commit count now, so these old keys are ignored
+        // silently instead of warning on every launch of an existing config.
+        "wave_mode" | "density_strip" => {}
         "heat_scale" => set_enum(&mut g.heat_scale, key, value, HeatScale::parse, warnings),
         "heat_percentile" => {
             let mut v = g.heat_percentile;
@@ -917,16 +885,10 @@ mouse = true
 # Fraction of the body height given to the waveform (0.20 - 0.85).
 wave_height = 0.55
 
-# Waveform height source: volume | density | both
-wave_mode = "volume"
-
 # Horizontal mapping: blend (readable, default) | time (strict wall clock).
 wave_axis = "blend"
 
-# Show the commit-count sparkline under the waveform.
-density_strip = true
-
-# Change-volume mapping: log | linear. Height and colour share this value.
+# Colour mapping: log | linear. Bar height is the commit count instead.
 heat_scale = "log"
 
 # Normalisation percentile (50 - 100). Keeps outliers from flattening the ramp.
@@ -1032,7 +994,7 @@ mod tests {
             r#"
             [general]
             limit = "nope"
-            wave_mode = "sideways"
+            wave_axis = "sideways"
             row_fields = ["hash", "bogus"]
             date_format = "%Q"
             unknown_key = 1

@@ -37,7 +37,7 @@ pub fn print(app: &App, color: bool) -> Result<()> {
         "{}",
         util::paint(
             &format!(
-                "{} · {} · {} · {}{} · {} axis · {} heat",
+                "{} · {} · {} · {}{} · count height · {} axis · {} heat",
                 app.repo.branch,
                 util::count(app.commits.len() as u64, "commit", "commits"),
                 util::count(app.repo.authors as u64, "author", "authors"),

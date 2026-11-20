@@ -4,7 +4,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
-use crate::config::{GlyphSet, WaveMode};
+use crate::config::GlyphSet;
 use crate::rows::{self, heat_t};
 use crate::stats::{self, Projection};
 use crate::theme::Rgb;
@@ -91,8 +91,11 @@ fn stamp(
 }
 
 impl Grid {
-    /// Build the waveform cell grid. `height` is the number of waveform rows
-    /// (density-only overlays included).
+    /// Build the waveform cell grid. `height` is the number of waveform rows.
+    ///
+    /// Height comes from the number of commits in a column; colour comes from
+    /// the column's total insertions + deletions. Both are computed only for
+    /// the columns currently inside the visible window.
     pub fn build(app: &App, width: usize, height: usize) -> Grid {
         let g = &app.cfg.general;
         let proj = Projection::new(app.window, width, &app.commits, g.wave_axis.weight());
@@ -110,75 +113,46 @@ impl Grid {
                 .and_then(|j| proj.x_commit(j))
         });
 
-        let both = height > 1
-            && (g.wave_mode == WaveMode::Both
-                || (g.wave_mode == WaveMode::Volume && g.density_strip));
-        let vol_top = 0usize;
-        let vol_h = if both { height - 1 } else { height };
-        let density_top = height - 1;
+        // Search dims a column only when none of its commits match.
+        let mut has_match = vec![false; width];
+        if app.search.is_some() {
+            for (j, &ci) in proj.order.iter().enumerate() {
+                if !app.is_dimmed(ci) {
+                    if let Some(x) = proj.x_commit(j).filter(|x| *x < width) {
+                        has_match[x] = true;
+                    }
+                }
+            }
+        }
 
-        let max_count = buckets.iter().map(|b| b.count).max().unwrap_or(0).max(1) as u64;
+        let max_count = buckets.iter().map(|b| b.count as u64).max().unwrap_or(0);
+        let count_scale = stats::CountScale::new(max_count);
 
         for (x, bucket) in buckets.iter().enumerate() {
             columns[x] = bucket.commit;
-            let selected = selected_col == Some(x);
-
-            let (count_t, count_fg) = if bucket.count > 0 {
-                let t = rows::heat_value(bucket.count as u64, max_count, g);
-                (t, app.theme.heat(t))
-            } else {
-                (0.0, app.theme.roles.axis)
-            };
-
-            if both {
-                let n8 = (count_t * 8.0).round() as usize;
-                let fg = if selected {
-                    count_fg.blend(app.theme.roles.wave_peak, 0.4)
-                } else {
-                    count_fg
-                };
-                stamp(&mut rows, x, density_top, 1, n8, fg, g.glyphs);
-            }
-
-            let (t, dim_merge) = match bucket.commit {
-                Some(ci) => {
-                    let c = &app.commits[ci];
-                    let t = heat_t(c, app.p95, g);
-                    (t, c.is_merge())
-                }
-                None => continue,
-            };
-
-            if g.wave_mode == WaveMode::Density && !both {
-                let n8 = (count_t * (vol_h * 8) as f64).round() as usize;
-                let fg = if selected {
-                    count_fg.blend(app.theme.roles.wave_peak, 0.4)
-                } else {
-                    count_fg
-                };
-                stamp(&mut rows, x, vol_top, vol_h, n8, fg, g.glyphs);
+            if bucket.count == 0 {
                 continue;
             }
 
-            let n8 = (t * (vol_h * 8) as f64).round() as usize;
-            let n8 = if n8 == 0 { 1 } else { n8 };
-            let base = if dim_merge {
+            let h = count_scale.height(bucket.count as u64);
+            let n8 = (h * (height * 8) as f64).round() as usize;
+            let n8 = n8.max(1);
+
+            let t = rows::heat_value(bucket.volume, app.p95, g);
+            let base = if bucket.volume == 0 {
                 app.theme.roles.dim
             } else {
                 app.theme.heat(t)
             };
-            let fg = if let Some(ci) = bucket.commit {
-                if app.is_dimmed(ci) {
-                    app.theme.roles.dim
-                } else if selected {
-                    base.blend(app.theme.roles.wave_peak, 0.45)
-                } else {
-                    base
-                }
+            let dimmed = app.search.is_some() && !has_match[x];
+            let fg = if dimmed {
+                app.theme.roles.dim
+            } else if selected_col == Some(x) {
+                base.blend(app.theme.roles.wave_peak, 0.45)
             } else {
                 base
             };
-            stamp(&mut rows, x, vol_top, vol_h, n8, fg, g.glyphs);
+            stamp(&mut rows, x, 0, height, n8, fg, g.glyphs);
         }
 
         Grid { rows, columns }

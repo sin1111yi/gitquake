@@ -99,10 +99,9 @@ pub fn draw(f: &mut Frame, app: &App, frame_area: Rect) {
     )));
     foot.push(Line::from(Span::styled(
         format!(
-            " theme {} · scale {} · {}",
+            " theme {} · count height · {} heat",
             app.theme.name,
-            app.cfg.general.heat_scale.as_str(),
-            app.cfg.general.wave_mode.as_str()
+            app.cfg.general.heat_scale.as_str()
         ),
         dim,
     )));
