@@ -113,10 +113,11 @@ pub struct Bucket {
 ///
 /// A quiet window is always allowed to use a 1–16 range, so a column with one
 /// commit stays near the baseline instead of filling the pane. Once the visible
-/// maximum is above 16, the scale switches to eight geometric bands. With a
-/// maximum of 256 the eighth root is 2, giving the thresholds
-/// `2, 4, 8, 16, 32, 64, 128, 256`: one increment of bar height per threshold.
-/// The top eight thresholds therefore map onto the eight eighth-block levels.
+/// maximum is above 16, the range is split into eight equal bands of
+/// `max / 8` commits. With a maximum of 256 the thresholds are
+/// `32, 64, 96, 128, 160, 192, 224, 256`: one increment of bar height per
+/// threshold. The eight thresholds therefore map onto the eight eighth-block
+/// levels.
 #[derive(Debug, Clone)]
 pub struct CountScale {
     breaks: Vec<u64>,
@@ -134,20 +135,14 @@ impl CountScale {
             };
         }
 
-        // The eighth root is the per-band multiplier: root^1 .. root^8 spans
-        // the whole range in eight equal-height steps. Rounding keeps the axis
-        // labels readable while preserving the geometric growth.
-        let root = (max as f64).powf(1.0 / 8.0);
+        // Eight equal bands: max / 8 commits per step. Flooring the integer
+        // boundaries means a band width of 12.5 holds counts 1–12, then
+        // 13–25, and so on. The last boundary is always the actual maximum.
         let mut breaks = vec![0u64];
         for i in 1..=8 {
-            let raw = if i == 8 {
-                max
-            } else {
-                root.powi(i).round() as u64
-            };
+            let value = if i == 8 { max } else { max * i as u64 / 8 };
             let previous = *breaks.last().expect("breaks always has an origin");
-            let value = raw.max(previous + 1).min(max);
-            breaks.push(value);
+            breaks.push(value.max(previous + 1).min(max));
         }
         breaks[8] = max;
         CountScale {
@@ -170,7 +165,7 @@ impl CountScale {
 
         // Every band is one eighth of the height. `partition_point` returns the
         // first threshold at or above the count, which is exactly the band the
-        // count belongs to (the first band also holds counts from 1 to root).
+        // count belongs to (the first band holds counts 1 through max / 8).
         let band = self.breaks.partition_point(|&b| b < count);
         (band as f64 / 8.0).clamp(0.0, 1.0)
     }
@@ -628,20 +623,20 @@ mod tests {
     }
 
     #[test]
-    fn count_scale_uses_eight_geometric_bands() {
+    fn count_scale_uses_eight_equal_bands() {
         let scale = CountScale::from_max(256);
         let steps = scale.steps();
         assert_eq!(
             steps.iter().map(|(c, _)| *c).collect::<Vec<_>>(),
-            vec![0, 2, 4, 8, 16, 32, 64, 128, 256]
+            vec![0, 32, 64, 96, 128, 160, 192, 224, 256]
         );
         assert_eq!(scale.height(0), 0.0);
         assert_eq!(scale.height(1), 1.0 / 8.0);
-        assert_eq!(scale.height(2), 1.0 / 8.0);
-        assert_eq!(scale.height(3), 2.0 / 8.0);
-        assert_eq!(scale.height(64), 6.0 / 8.0);
-        assert_eq!(scale.height(100), 7.0 / 8.0);
-        assert_eq!(scale.height(150), 1.0);
+        assert_eq!(scale.height(32), 1.0 / 8.0);
+        assert_eq!(scale.height(33), 2.0 / 8.0);
+        assert_eq!(scale.height(96), 3.0 / 8.0);
+        assert_eq!(scale.height(100), 4.0 / 8.0);
+        assert_eq!(scale.height(255), 1.0);
         assert_eq!(scale.height(256), 1.0);
         assert_eq!(scale.height(9_999), 1.0);
     }
@@ -650,6 +645,7 @@ mod tests {
     fn count_scale_reanchors_on_the_visible_maximum() {
         // A quiet window spends its eight bands on a small range, so the same
         // count is higher there than in a window with a large maximum.
+        // max=17 gives bands of width 2; max=10000 gives bands of width 1250.
         let quiet = CountScale::from_max(17);
         let busy = CountScale::from_max(10_000);
         assert!(quiet.height(9) > busy.height(9));
@@ -673,7 +669,7 @@ mod tests {
         assert_eq!(CountScale::from_max(1).height(1), 1.0 / 16.0);
         assert_eq!(CountScale::from_max(8).height(8), 0.5);
         assert_eq!(CountScale::from_max(16).height(16), 1.0);
-        // Above the floor the geometric scale takes over.
+        // Above the floor the equal-band scale takes over.
         assert_eq!(CountScale::from_max(17).height(1), 1.0 / 8.0);
     }
 

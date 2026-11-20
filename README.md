@@ -110,11 +110,10 @@ largest visible column.
 
 Counts use a scale that is rebuilt for the current view. A window whose busiest column
 holds at most 16 commits uses that 1–16 range linearly, so sparse history does not fill
-the pane. Above 16, the maximum is spread over eight geometric bands: the eighth root of
-the maximum is the multiplier, so 256 produces `2, 4, 8, 16, 32, 64, 128, 256`. Each
-band is one eighth of the height. Only visible columns are measured, so zooming,
-panning or resizing rediscovers the local highs and lows without paying for history that
-is off screen.
+the pane. Above 16, the maximum is split into eight equal bands of `max / 8` commits, so
+256 produces `32, 64, 96, 128, 160, 192, 224, 256`. Each band is one eighth of the
+height. Only visible columns are measured, so zooming, panning or resizing rediscovers
+the local highs and lows without paying for history that is off screen.
 
 Colour is a separate value: the sum of `insertions + deletions` for every commit in
 the column, interpolated over the theme's five-stop heat ramp and normalised against
@@ -181,11 +180,10 @@ git show --stat <hash>   # summary only
 - A quiet window uses a 1–16 range, linearly: one commit is 1/16 of the pane, eight
   commits are half, and sixteen commits fill it. This keeps sparse histories from
   drawing every bar at full height.
-- Above 16 the maximum is spread over eight geometric bands. The eighth root of the
-  maximum is the band multiplier: a maximum of 256 gives the thresholds
-  `2, 4, 8, 16, 32, 64, 128, 256`, so counts up to 2 are one eighth high, up to 4 are
-  two eighths, and so on. The top eight thresholds line up with the terminal's eighth
-  blocks, so neighbouring bands are visibly different.
+- Above 16 the maximum is split into eight equal bands of `max / 8` commits. A maximum
+  of 256 gives the thresholds `32, 64, 96, 128, 160, 192, 224, 256`, so counts up to 32
+  are one eighth high, up to 64 are two eighths, and so on. The eight thresholds line
+  up with the terminal's eighth blocks, so neighbouring bands are visibly different.
 - Off-screen commits are excluded from the bucket loop, the max pass and the axis, so
   zooming stays cheap even in a very large repository.
 
