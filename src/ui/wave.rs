@@ -18,7 +18,6 @@ const EIGHTHS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '�
 const Y_AXIS_LABEL_WIDTH: usize = 4;
 /// Total width reserved for the y-axis and its labels.
 pub const Y_AXIS_WIDTH: u16 = Y_AXIS_LABEL_WIDTH as u16 + 2;
-
 #[derive(Clone, Copy, Debug)]
 pub struct Cell {
     pub ch: char,
@@ -109,19 +108,17 @@ impl Grid {
         let buckets = stats::project_buckets(&app.commits, &proj, width);
         let mut columns = vec![None; width];
         let mut rows = vec![vec![Cell::blank(app.theme.roles.axis); width]; height];
-        // Process the visible buckets once to find the actual range. Rebuilding
-        // the height function from this range keeps a two-month zoom from
-        // inheriting the flat scale of the full history.
-        let (min_count, max_count) = buckets.iter().fold((u64::MAX, 0u64), |(lo, hi), b| {
-            let count = b.count as u64;
-            if count == 0 {
-                (lo, hi)
-            } else {
-                (lo.min(count), hi.max(count))
-            }
-        });
-        let min_count = if max_count == 0 { 0 } else { min_count };
-        let count_scale = CountScale::with_range(min_count, max_count);
+        // Walk the visible buckets once, collecting their counts. Sorting is a
+        // cheap way to pick the maximum without scanning the whole history; the
+        // scale is rebuilt whenever the window or terminal width changes.
+        let mut visible_counts: Vec<u64> = buckets
+            .iter()
+            .filter(|b| b.count > 0)
+            .map(|b| b.count as u64)
+            .collect();
+        visible_counts.sort_unstable();
+        let max_count = visible_counts.last().copied().unwrap_or(0);
+        let count_scale = CountScale::from_max(max_count);
         if width == 0 || height == 0 {
             return Grid {
                 rows,
@@ -196,8 +193,8 @@ pub fn y_axis_labels(scale: &CountScale, grid_h: usize) -> Vec<(usize, u64)> {
     let mut labels = Vec::new();
     // Walk from the top (the visible maximum) down, so the most important
     // label wins when two boundaries land on the same terminal row.
-    for &count in scale.steps().iter().skip(1).rev() {
-        let t = scale.height(count);
+    let steps = scale.steps();
+    for &(count, t) in steps.iter().skip(1).rev() {
         let row = ((1.0 - t) * grid_h as f64).round() as usize;
         let row = row.min(grid_h - 1);
         if used[row] {
@@ -524,7 +521,7 @@ mod tests {
 
     #[test]
     fn y_axis_labels_are_sorted_and_fit_the_grid() {
-        let labels = y_axis_labels(&CountScale::with_range(1, 150), 20);
+        let labels = y_axis_labels(&CountScale::from_max(150), 20);
         assert_eq!(labels.first(), Some(&(0, 150)));
         assert!(labels.windows(2).all(|w| w[0].0 < w[1].0));
         assert!(labels.iter().all(|(row, _)| *row < 20));
@@ -532,9 +529,10 @@ mod tests {
 
     #[test]
     fn y_axis_labels_keep_the_visible_maximum() {
-        for max in [1, 2, 7, 150, 10_000] {
-            let labels = y_axis_labels(&CountScale::with_range(1, max), 8);
-            assert_eq!(labels.first().map(|(_, c)| *c), Some(max));
+        for max in [1, 2, 7, 16, 150, 10_000] {
+            let labels = y_axis_labels(&CountScale::from_max(max), 8);
+            let expected = max.max(16);
+            assert_eq!(labels.first().map(|(_, c)| *c), Some(expected));
         }
     }
 }

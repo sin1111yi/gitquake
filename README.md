@@ -108,14 +108,13 @@ slice. Heights are drawn with eighth blocks (`▁▂▃▄▅▆▇█`) for sub
 labelled y-axis on the left shows the count at each band boundary, from `0` up to the
 largest visible column.
 
-Counts use a piecewise scale that is rebuilt for the current view. The first band runs
-from `0` to the smallest non-zero column, then bands double up to the largest column.
-Every band gets the same vertical space, with a linear ramp inside the band. A
-six-month view might use `0–1–2–4–…–150`, while a three-month view whose columns all
-hold 50–150 commits uses `0–50–100–150`; the same code rediscovers where the highs and
-lows are instead of inheriting a flat global scale. That also keeps `100` and `150`
-visibly different instead of flattening near the top of a smooth curve. Only visible
-columns are measured, so zooming or panning never pays for history that is off screen.
+Counts use a scale that is rebuilt for the current view. A window whose busiest column
+holds at most 16 commits uses that 1–16 range linearly, so sparse history does not fill
+the pane. Above 16, the maximum is spread over eight geometric bands: the eighth root of
+the maximum is the multiplier, so 256 produces `2, 4, 8, 16, 32, 64, 128, 256`. Each
+band is one eighth of the height. Only visible columns are measured, so zooming,
+panning or resizing rediscovers the local highs and lows without paying for history that
+is off screen.
 
 Colour is a separate value: the sum of `insertions + deletions` for every commit in
 the column, interpolated over the theme's five-stop heat ramp and normalised against
@@ -176,16 +175,19 @@ git show --stat <hash>   # summary only
 ### Height — commits per column
 
 - Commits are bucketed into terminal columns using the current axis projection.
-- After bucketing, `CountScale` makes one pass over the **visible** buckets to find
-  the smallest non-zero count and the largest count. The first band runs from `0` to
-  the smallest count, then the breakpoints double up to the maximum. Each band gets an
-  equal share of the waveform height.
-- Within a band the height is linear, so values close together inside a band remain
-  distinguishable. With a visible range of 1–150, a column of 100 commits sits around
-  84% of full height and 150 reaches 100%. With a visible range of 50–150, the bands
-  become `0–50–100–150`, so the same column is clearly in the upper half.
-- Off-screen commits are excluded from the bucket loop, the min/max pass and the axis,
-  so zooming stays cheap even in a very large repository.
+- After bucketing, `CountScale` walks the **visible** buckets once, sorts their counts
+  and takes the largest count. This step is repeated whenever the time window or the
+  terminal width changes, so the scale always describes what is on screen.
+- A quiet window uses a 1–16 range, linearly: one commit is 1/16 of the pane, eight
+  commits are half, and sixteen commits fill it. This keeps sparse histories from
+  drawing every bar at full height.
+- Above 16 the maximum is spread over eight geometric bands. The eighth root of the
+  maximum is the band multiplier: a maximum of 256 gives the thresholds
+  `2, 4, 8, 16, 32, 64, 128, 256`, so counts up to 2 are one eighth high, up to 4 are
+  two eighths, and so on. The top eight thresholds line up with the terminal's eighth
+  blocks, so neighbouring bands are visibly different.
+- Off-screen commits are excluded from the bucket loop, the max pass and the axis, so
+  zooming stays cheap even in a very large repository.
 
 ### Colour — change volume per column
 

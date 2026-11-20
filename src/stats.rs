@@ -109,62 +109,83 @@ pub struct Bucket {
     pub commit: Option<usize>,
 }
 
-/// Piecewise-linear scale for commit counts.
+/// Scale for commit counts in the visible waveform.
 ///
-/// Bands are powers of two (`0-1`, `1-2`, `2-4`, `4-8`, ...), and every band
-/// receives the same amount of vertical space. This keeps 100 and 150 commits
-/// visibly apart instead of letting a smooth saturation curve flatten them.
-/// Only the largest count among the visible columns is needed.
+/// A quiet window is always allowed to use a 1–16 range, so a column with one
+/// commit stays near the baseline instead of filling the pane. Once the visible
+/// maximum is above 16, the scale switches to eight geometric bands. With a
+/// maximum of 256 the eighth root is 2, giving the thresholds
+/// `2, 4, 8, 16, 32, 64, 128, 256`: one increment of bar height per threshold.
+/// The top eight thresholds therefore map onto the eight eighth-block levels.
 #[derive(Debug, Clone)]
 pub struct CountScale {
     breaks: Vec<u64>,
+    linear: bool,
 }
 
 impl CountScale {
-    /// Build a scale anchored to the values that are actually visible.
-    ///
-    /// The first band runs from `0` to the smallest non-zero bucket, then the
-    /// breakpoints double up to the largest bucket. A three-month window with
-    /// 50–150 commits per column therefore uses `0–50–100–150`, while a wider
-    /// window with 1–150 uses `0–1–2–4–…–150`. Same code, different range,
-    /// different resolution.
-    pub fn with_range(min_count: u64, max_count: u64) -> CountScale {
+    /// Build a scale from the largest count found in the visible window.
+    pub fn from_max(max_count: u64) -> CountScale {
         let max = max_count.max(1);
-        let min = min_count.max(1).min(max);
-        let mut breaks = vec![0u64, min];
-        let mut next = min.saturating_mul(2);
-        while next > min && next < max {
-            breaks.push(next);
-            next = next.saturating_mul(2);
+        if max <= 16 {
+            return CountScale {
+                breaks: vec![0, 16],
+                linear: true,
+            };
         }
-        if breaks.last().copied() != Some(max) {
-            breaks.push(max);
+
+        // The eighth root is the per-band multiplier: root^1 .. root^8 spans
+        // the whole range in eight equal-height steps. Rounding keeps the axis
+        // labels readable while preserving the geometric growth.
+        let root = (max as f64).powf(1.0 / 8.0);
+        let mut breaks = vec![0u64];
+        for i in 1..=8 {
+            let raw = if i == 8 {
+                max
+            } else {
+                root.powi(i).round() as u64
+            };
+            let previous = *breaks.last().expect("breaks always has an origin");
+            let value = raw.max(previous + 1).min(max);
+            breaks.push(value);
         }
-        CountScale { breaks }
+        breaks[8] = max;
+        CountScale {
+            breaks,
+            linear: false,
+        }
     }
 
-    /// Map a count in `0..=max_count` to `0..=1`.
+    /// Map a count in `0..=max` to `0..=1`.
     pub fn height(&self, count: u64) -> f64 {
         if count == 0 {
             return 0.0;
         }
+
         let max = *self.breaks.last().unwrap_or(&1);
         let count = count.min(max);
-        let bands = (self.breaks.len() - 1) as f64;
-        let band = (self.breaks.partition_point(|&b| b <= count) - 1).min(self.breaks.len() - 2);
-        let lo = self.breaks[band];
-        let hi = self.breaks[band + 1];
-        let frac = if hi > lo {
-            (count - lo) as f64 / (hi - lo) as f64
-        } else {
-            1.0
-        };
-        ((band as f64 + frac) / bands).clamp(0.0, 1.0)
+        if self.linear {
+            return (count as f64 / max as f64).clamp(0.0, 1.0);
+        }
+
+        // Every band is one eighth of the height. `partition_point` returns the
+        // first threshold at or above the count, which is exactly the band the
+        // count belongs to (the first band also holds counts from 1 to root).
+        let band = self.breaks.partition_point(|&b| b < count);
+        (band as f64 / 8.0).clamp(0.0, 1.0)
     }
 
-    /// Count values at the band boundaries, including zero and the visible max.
-    pub fn steps(&self) -> &[u64] {
-        &self.breaks
+    /// Count values and their exact height fractions, from the origin upwards.
+    pub fn steps(&self) -> Vec<(u64, f64)> {
+        if self.linear {
+            let max = *self.breaks.last().unwrap_or(&16);
+            return (0..=4).map(|i| (max * i / 4, i as f64 / 4.0)).collect();
+        }
+        self.breaks
+            .iter()
+            .enumerate()
+            .map(|(i, &count)| (count, i as f64 / 8.0))
+            .collect()
     }
 }
 
@@ -607,45 +628,53 @@ mod tests {
     }
 
     #[test]
-    fn count_scale_separates_large_counts() {
-        let scale = CountScale::with_range(1, 150);
-        assert_eq!(scale.height(0), 0.0);
-        assert!((scale.height(150) - 1.0).abs() < 1e-9);
-        assert!(scale.height(100) > scale.height(64));
-        assert!(scale.height(128) > scale.height(100));
-        assert!(scale.height(150) > scale.height(128));
-        // 100 and 150 must not collapse onto the same row.
-        assert!(scale.height(150) - scale.height(100) > 0.1);
-
-        let wide = CountScale::with_range(1, 10_000);
-        assert!(wide.height(150) > wide.height(100));
-        assert!(wide.height(150) - wide.height(100) > 0.01);
-    }
-
-    #[test]
-    fn count_scale_reanchors_on_the_visible_range() {
-        let wide = CountScale::with_range(1, 150);
-        let narrow = CountScale::with_range(50, 150);
-        assert_eq!(narrow.steps(), &[0, 50, 100, 150]);
-        assert!((narrow.height(50) - 1.0 / 3.0).abs() < 1e-9);
-        assert!((narrow.height(100) - 2.0 / 3.0).abs() < 1e-9);
-        assert_eq!(narrow.height(150), 1.0);
-        // The visible range is expanded, not squeezed by all the quiet columns
-        // that are outside the window.
-        assert!(
-            narrow.height(100) - narrow.height(50) > wide.height(100) - wide.height(50),
-            "narrow={:?} wide={:?}",
-            narrow.steps(),
-            wide.steps()
+    fn count_scale_uses_eight_geometric_bands() {
+        let scale = CountScale::from_max(256);
+        let steps = scale.steps();
+        assert_eq!(
+            steps.iter().map(|(c, _)| *c).collect::<Vec<_>>(),
+            vec![0, 2, 4, 8, 16, 32, 64, 128, 256]
         );
+        assert_eq!(scale.height(0), 0.0);
+        assert_eq!(scale.height(1), 1.0 / 8.0);
+        assert_eq!(scale.height(2), 1.0 / 8.0);
+        assert_eq!(scale.height(3), 2.0 / 8.0);
+        assert_eq!(scale.height(64), 6.0 / 8.0);
+        assert_eq!(scale.height(100), 7.0 / 8.0);
+        assert_eq!(scale.height(150), 1.0);
+        assert_eq!(scale.height(256), 1.0);
+        assert_eq!(scale.height(9_999), 1.0);
     }
 
     #[test]
-    fn count_scale_handles_tiny_maxima() {
-        assert_eq!(CountScale::with_range(0, 0).height(0), 0.0);
-        assert!((CountScale::with_range(1, 1).height(1) - 1.0).abs() < 1e-9);
-        assert!((CountScale::with_range(1, 2).height(1) - 0.5).abs() < 1e-9);
-        assert!((CountScale::with_range(1, 3).height(2) - 2.0 / 3.0).abs() < 1e-9);
+    fn count_scale_reanchors_on_the_visible_maximum() {
+        // A quiet window spends its eight bands on a small range, so the same
+        // count is higher there than in a window with a large maximum.
+        let quiet = CountScale::from_max(17);
+        let busy = CountScale::from_max(10_000);
+        assert!(quiet.height(9) > busy.height(9));
+        assert_eq!(quiet.height(17), 1.0);
+        assert_eq!(busy.height(10_000), 1.0);
+        assert_eq!(quiet.steps().first().map(|(c, _)| *c), Some(0));
+        assert_eq!(quiet.steps().last().map(|(c, _)| *c), Some(17));
+        assert_eq!(busy.steps().last().map(|(c, _)| *c), Some(10_000));
+    }
+
+    #[test]
+    fn count_scale_uses_a_sixteen_commit_floor_for_quiet_windows() {
+        for max in [0, 1, 2, 8, 16] {
+            let scale = CountScale::from_max(max);
+            assert_eq!(scale.height(0), 0.0);
+            assert_eq!(
+                scale.steps(),
+                vec![(0, 0.0), (4, 0.25), (8, 0.5), (12, 0.75), (16, 1.0)]
+            );
+        }
+        assert_eq!(CountScale::from_max(1).height(1), 1.0 / 16.0);
+        assert_eq!(CountScale::from_max(8).height(8), 0.5);
+        assert_eq!(CountScale::from_max(16).height(16), 1.0);
+        // Above the floor the geometric scale takes over.
+        assert_eq!(CountScale::from_max(17).height(1), 1.0 / 8.0);
     }
 
     fn bare_commit(timestamp: i64) -> Commit {
